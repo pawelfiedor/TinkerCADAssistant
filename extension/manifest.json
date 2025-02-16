@@ -22,10 +22,19 @@
     {
       "run_at": "document_end",
       "js": [
-        "scripts/content.js"
+        "scripts/main-content.js"
       ],
       "matches": [
         "https://www.tinkercad.com/*"
+      ]
+    },
+    {
+      "run_at": "document_end",
+      "js": [
+        "scripts/api-content.js"
+      ],
+      "matches": [
+        "https://api-reader.tinkercad.com/*"
       ]
     }
   ],

@@ -7,15 +7,16 @@
  * UAS - Update and store: Refers to update the current data and store it.
  * UASR - Update and store and reload: Refers to to reload an entire of something and store it.
  */
-
-
+// if (window !== window.top) {
+// }
 const Context = Object.freeze({
     GENERAL: 'general',
     ACTIVITY: 'activity',
     TEACHER: 'teacher',
     CLASSES: 'classes',
     GALLERY: 'gallery',
-    ACTIVITIES: 'activities'
+    ACTIVITIES: 'activities',
+    PRINTER: 'printer'
 })
 
 
@@ -471,12 +472,12 @@ let sendCommand = (command, onComplete) => {
 
         return
     }
-
     chrome.runtime.sendMessage({value: command.join("(SPLIT)")}, (response) => {
         onComplete(response)
 
     });
 }
+
 /**
  * Download a project
  * @param project Download object, see example objects for example.
@@ -566,6 +567,24 @@ let collectOne = (url, selector, map, onComplete) => {
         collectOne(url, selector, map, onComplete)
     }, 300)
 }
+let basicCollectOne = (url, map, onComplete) => {
+    if (!currentCollection) {
+        currentCollection = url
+
+        let frame = getFrame(url).contentDocument
+        onComplete(map(frame))
+        getFrame("")
+        currentCollection = null
+
+        return
+    }
+
+    awaitResult(() => {
+        return currentCollection === null
+    }, () => {
+        basicCollectOne(url, map, onComplete)
+    }, 300)
+}
 
 
 /**
@@ -648,6 +667,16 @@ document.addEventListener('keyup', (event) => {
         }
     }
 })
+// let sasGetPrinterInformation = (projectID) => {
+//
+//     let f = document.createElement('iframe')
+//     f.src = "https://api-reader.tinkercad.com/designs/detail/cLe5l6nECEG"
+//     f.id = "finder"
+//     document.querySelector("body").appendChild(f)
+//     console.log(f.contentWindow)
+//
+// }
+// sasGetPrinterInformation("cLe5l6nECEG")
 
 let projectIDRegex = /\/things\/(.{11})/gm
 /**
@@ -668,11 +697,11 @@ let sasGetProjectsOfActivity = (clazz, activity, onComplete = () => {
 
         collect(`https://www.tinkercad.com/classrooms/${clazz}/activities/${activity}`, ".project-students-assets", ".thing-box", (item) => {
             let author = (/.+(\w{11}).+/gm).exec(item.querySelector(".author-information").querySelector("a").href)[1]
-            let value = item.querySelector("a").href.match(projectIDRegex)[0].replace("/things/", "")
+            let projectID = item.querySelector("a").href.match(projectIDRegex)[0].replace("/things/", "")
             let name = item.querySelector("h3").textContent
 
             return {
-                id: value, name: name, author: author,
+                id: projectID, name: name, author: author,
             }
 
         }, (results, secondaryResult) => {
@@ -680,10 +709,9 @@ let sasGetProjectsOfActivity = (clazz, activity, onComplete = () => {
             modify(clazz, (data) => {
                 data.activities[activity].projects = {}
                 data.activities[activity].ogFiles = {}
-                if (secondaryResult)
-                    for (let file of secondaryResult) {
-                        data.activities[activity].ogFiles[file.id] = file
-                    }
+                if (secondaryResult) for (let file of secondaryResult) {
+                    data.activities[activity].ogFiles[file.id] = file
+                }
                 for (let project of results) {
                     data.activities[activity].projects[project.id] = project
                 }
@@ -723,6 +751,7 @@ let sasGetAllProjectsOfActivitiesOfClazz = (clazz, onComplete = () => {
         let i = 0
         let items = Object.values(data.activities)
         for (let activity of items) {
+
             sasGetProjectsOfActivity(clazz, activity.id, () => {
                 if (++i >= items.length) onComplete()
             }, force)
@@ -771,8 +800,7 @@ let sasStudentsAndClassCodeOf = (id, onComplete = () => {
             modify(id, (data) => {
                 if (!data.students) data.students = {}
                 for (let student of students) {
-                    student.code =
-                        data.students[student.id] = student
+                    student.code = data.students[student.id] = student
                 }
 
             }, onComplete)
@@ -783,6 +811,19 @@ let sasStudentsAndClassCodeOf = (id, onComplete = () => {
     })
 
 }
+let sasPrintListForProjects = (ids) => {
+    let items = ids
+    items.unshift("api")
+    sendCommand(items, () => {
+        setTimeout(() => {
+            sendCommand(["api2"], () => {
+                console.log("TEst")
+            })
+        }, 40)
+    })
+}
+
+
 const UpdateItems = Object.freeze({
     STUDENTS: "students",
 
@@ -912,8 +953,33 @@ function contains_heb(str) {
     return (/[\u0590-\u05FF]/).test(str);
 }
 
+let printerViewEnable = () => enableView("printer", (container) => {
+    currentPage = Context.PRINTER
+    let parentItem = document.createElement("div")
+    parentItem.classList.add("classes-list")
+    let childItem = document.createElement("div")
+    childItem.classList.add("selectable-list-item")
+
+    let p = document.createElement("p")
+    p.textContent = "hello 123"
+    let p2 = document.createElement("p")
+    p2.style.gridTemplateColumns = "42px auto 120px 160px 50px"
+    p2.textContent = "hello 123"
+    childItem.appendChild(p)
+    childItem.appendChild(p2)
+    parentItem.appendChild(childItem)
+
+
+    document.body.appendChild(parentItem)
+
+}, () => {
+
+
+})
 let galleryViewEnable = (projects = null) => enableView("gallery", (container) => {
     currentPage = Context.GALLERY
+    if (!projects)
+        updateStorage()
 
     let frame = document.createElement("iframe")
     let h1 = document.createElement("h2")
@@ -1074,22 +1140,22 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
     getCurrentActivityAndClassID((clazzID, activityID) => {
         get(clazzID, (clazz) => {
             let first = true
-            if (clazz.activities[activityID])
-                for (let project of Object.values(clazz.activities[activityID].projects)) {
+            if (clazz.activities[activityID]) for (let project of Object.values(clazz.activities[activityID].projects)) {
 
-                    let b = smallButton(clazz.students[project.author].name, () => {
-                        setFrame(project.id, b)
-                    })
-                    if (first) {
-                        setFrame(project.id, b)
-                        first = false
-                    }
-                    b.id = project.id
-                    b.classList.add("selection")
-                    b.style.width = "13vw"
-                    studentList.appendChild(b)
-
+                let b = smallButton(clazz.students[project.author].name, () => {
+                    setFrame(project.id, b)
+                })
+                if (first) {
+                    setFrame(project.id, b)
+                    first = false
                 }
+                b.id = project.id
+                b.classList.add("selection")
+                b.style.width = "13vw"
+
+                studentList.appendChild(b)
+
+            }
             let updateSelection = (onComplete) => {
                 get(clazzID, (clazz) => {
 
@@ -1308,6 +1374,15 @@ let main = () => {
 
     }, 500, Context.CLASSES)
 
+    onElementLoad(".left-actions", "prints", (container) => {
+        let elem = smallButton2("Print Manager", () => {
+            printerViewEnable()
+            sasPrintListForProjects(["1", "ac"])
+        })
+        container.querySelector("#newClassButton").insertAdjacentElement('afterend', elem)
+
+    }, 500, Context.CLASSES)
+
     let easyTools = (context) => {
         onElementsLoad(".thing-box", "border", (item) => {
             let container = document.createElement("div")
@@ -1315,7 +1390,7 @@ let main = () => {
             container.style.display = "flex"
             container.style.alignItems = "center"
             container.style.justifyContent = "center"
-            let id = item.querySelector("a").href?.match(projectIDRegex)[0]?.replace("/things/", "")
+            let id = item.querySelector("a").href?.match(projectIDRegex)?.[0]?.replace("/things/", "")
             if (!id) return
             let name = item.querySelector("h3").textContent
 
@@ -1402,8 +1477,7 @@ let main = () => {
                         let directoryName = `${clazz.name.replace(/ /g, '')}/${activityName.replace(/ /g, '')}`
                         for (let project of Object.values(projects)) {
                             downloadItems[project.id] = {
-                                id: project.id,
-                                downloadName: clazz.students[project.author].name.replace(/ /g, '')
+                                id: project.id, downloadName: clazz.students[project.author].name.replace(/ /g, '')
                             }
 
                         }
@@ -1421,7 +1495,6 @@ let main = () => {
 
     }, 300, Context.ACTIVITY)
 
-
-    updateStorage()
 }
 main()
+
