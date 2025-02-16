@@ -45,7 +45,7 @@ let get = (id, onComplete) => {
 
         return
     }
-    chrome.storage.local.get(["storage"], (data) => {
+    chrome.storage.sync.get(["storage"], (data) => {
         let store
         if (!data.storage) {
             store = {}
@@ -66,10 +66,10 @@ let sasGet = (id, onComplete) => {
         get(id, onComplete)
     }, true)
 }
-let sasGetForActivity = (clazz, activity, onComplete) => {
+let sasGetForActivity = (clazz, activity, onComplete, force = true) => {
     sasAllDataForClassActivity(clazz, activity, () => {
         get(clazz, onComplete)
-    }, true)
+    }, force)
 }
 
 
@@ -82,7 +82,7 @@ let getKeys = (onComplete) => {
 
         return
     }
-    chrome.storage.local.get(["storage"], (data) => {
+    chrome.storage.sync.get(["storage"], (data) => {
         let store
         if (!data.storage) {
             store = {}
@@ -105,7 +105,7 @@ let unsafeSet = (id, value, onComplete) => {
 
         return
     }
-    chrome.storage.local.get(["storage"], (data) => {
+    chrome.storage.sync.get(["storage"], (data) => {
         let store
         if (!data.storage) {
             store = {}
@@ -114,7 +114,7 @@ let unsafeSet = (id, value, onComplete) => {
             store[id] = value
         }
 
-        chrome.storage.local.set({storage: store}, (data) => {
+        chrome.storage.sync.set({storage: store}, (data) => {
             onComplete()
         })
     })
@@ -799,8 +799,9 @@ let sasStudentsAndClassCodeOf = (id, onComplete = () => {
 
             modify(id, (data) => {
                 if (!data.students) data.students = {}
+                data.code = code
                 for (let student of students) {
-                    student.code = data.students[student.id] = student
+                    data.students[student.id] = student
                 }
 
             }, onComplete)
@@ -904,12 +905,12 @@ let updateStorage = () => {
 
         return
     }
-    chrome.storage.local.get("user", (user) => {
+    chrome.storage.sync.get("user", (user) => {
         getCurrentUser((username) => {
             if (user.user !== username) {
                 console.log("Attempting to rebuild storage cache!")
-                chrome.storage.local.clear(() => {
-                    chrome.storage.local.set({user: username}, () => {
+                chrome.storage.sync.clear(() => {
+                    chrome.storage.sync.set({user: username}, () => {
                         console.log(`Signed-In User changed! Rebuilding Cache`)
                         updateStorage()
                     })
@@ -955,22 +956,13 @@ function contains_heb(str) {
 
 let printerViewEnable = () => enableView("printer", (container) => {
     currentPage = Context.PRINTER
-    let parentItem = document.createElement("div")
-    parentItem.classList.add("classes-list")
-    let childItem = document.createElement("div")
-    childItem.classList.add("selectable-list-item")
-
-    let p = document.createElement("p")
-    p.textContent = "hello 123"
-    let p2 = document.createElement("p")
-    p2.style.gridTemplateColumns = "42px auto 120px 160px 50px"
-    p2.textContent = "hello 123"
-    childItem.appendChild(p)
-    childItem.appendChild(p2)
-    parentItem.appendChild(childItem)
-
-
-    document.body.appendChild(parentItem)
+    const printItem = () => {
+        const item = document.createElement("button")
+        item.textContent = "test"
+        item.classList.add("testing")
+        container.appendChild(item)
+    }
+    printItem()
 
 }, () => {
 
@@ -1021,7 +1013,7 @@ let galleryViewEnable = (projects = null) => enableView("gallery", (container) =
     let i = 1
 
     let loop = (projects) => {
-        chrome.storage.local.get(["speed"], (data) => {
+        chrome.storage.sync.get(["speed"], (data) => {
             let speed = data ? 6 - data.speed : 3
             setTimeout(() => {
                 if (currentPage !== Context.GALLERY) return
@@ -1139,23 +1131,27 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
 
     getCurrentActivityAndClassID((clazzID, activityID) => {
         get(clazzID, (clazz) => {
+
+
             let first = true
-            if (clazz.activities[activityID]) for (let project of Object.values(clazz.activities[activityID].projects)) {
+            if (clazz.activities)
+                if (clazz.activities[activityID])
+                    for (let project of Object.values(clazz.activities[activityID].projects)) {
 
-                let b = smallButton(clazz.students[project.author].name, () => {
-                    setFrame(project.id, b)
-                })
-                if (first) {
-                    setFrame(project.id, b)
-                    first = false
-                }
-                b.id = project.id
-                b.classList.add("selection")
-                b.style.width = "13vw"
+                        let b = smallButton(clazz.students[project.author].name, () => {
+                            setFrame(project.id, b)
+                        })
+                        if (first) {
+                            setFrame(project.id, b)
+                            first = false
+                        }
+                        b.id = project.id
+                        b.classList.add("selection")
+                        b.style.width = "13vw"
 
-                studentList.appendChild(b)
+                        studentList.appendChild(b)
 
-            }
+                    }
             let updateSelection = (onComplete) => {
                 get(clazzID, (clazz) => {
 
@@ -1226,8 +1222,10 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
             let autoPlayID = 0
 
             let autPlayLoop = (id) => {
-                chrome.storage.local.get(["speed"], (data) => {
-                    let speed = data ? 6 - data.speed : 3
+                chrome.storage.sync.get(["speed"], (data) => {
+                    let speed = 3
+                    if (data)
+                        speed = 6 - data.speed
 
 
                     setTimeout(() => {
@@ -1300,15 +1298,23 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
                 currentPage = Context.ACTIVITY
             }))
 
+            let applyHeader = (newClazz) => {
+                header.appendChild(bigButton(newClazz.code, () => copyTextToClipboard(newClazz.code.replaceAll("-", ""))))
+                header.appendChild(autoButton)
 
-            header.appendChild(bigButton(clazz.code, () => copyTextToClipboard(clazz.code.replaceAll("-", ""))))
-
-
-            header.appendChild(autoButton)
-
-            header.appendChild(bigButton("Reload", () => {
-                fullReload()
-            }))
+                header.appendChild(bigButton("Reload", () => {
+                    fullReload()
+                }))
+            }
+            if (!clazz.code) {
+                sasStudentsAndClassCodeOf(clazzID, () => {
+                    get(clazzID, (newClazz) => {
+                        applyHeader(newClazz)
+                    })
+                })
+            } else {
+                applyHeader(clazz)
+            }
 
 
         })
@@ -1494,7 +1500,10 @@ let main = () => {
 
 
     }, 300, Context.ACTIVITY)
+    sasGeneralClasses(() => {
 
+        console.log("Collected standard basic student data")
+    })
 }
 main()
 

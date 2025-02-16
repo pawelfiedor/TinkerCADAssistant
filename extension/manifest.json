@@ -24,6 +24,8 @@
       "js": [
         "scripts/main-content.js"
       ],
+      "css": [
+        "style/printer.css"],
       "matches": [
         "https://www.tinkercad.com/*"
       ]

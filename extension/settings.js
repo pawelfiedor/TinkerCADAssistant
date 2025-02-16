@@ -8,7 +8,7 @@ let get = (id, onComplete) => {
 
         return
     }
-    chrome.storage.local.get(["storage"], (data) => {
+    chrome.storage.sync.get(["storage"], (data) => {
         let store
         if (!data.storage) {
             store = {}
@@ -28,7 +28,7 @@ let getKeys = (onComplete) => {
 
         return
     }
-    chrome.storage.local.get(["storage"], (data) => {
+    chrome.storage.sync.get(["storage"], (data) => {
         let store
         if (!data.storage) {
             store = {}
@@ -123,9 +123,9 @@ let retrieveALLActivityNames = (onComplete) => {
 //     }
 //
 // })
-chrome.storage.local.get(["speed"], (speed) => {
+chrome.storage.sync.get(["speed"], (speed) => {
     if (!speed)
-        chrome.storage.local.set({speed: 4}, () => {
+        chrome.storage.sync.set({speed: 4}, () => {
             document.querySelector("#speed").value = speed.speed
         })
     else {
@@ -135,7 +135,7 @@ chrome.storage.local.get(["speed"], (speed) => {
 })
 
 let save = () => {
-    chrome.storage.local.set({speed: document.querySelector("#speed").value}, () => {
+    chrome.storage.sync.set({speed: document.querySelector("#speed").value}, () => {
     })
 }
 let saveButton = document.querySelector("#save-btn")

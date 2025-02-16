@@ -34,7 +34,7 @@ let unsafeSet = (id, value, onComplete) => {
 
         return
     }
-    chrome.storage.local.get(["prints"], (data) => {
+    chrome.storage.sync.get(["prints"], (data) => {
         let store
         if (!data.prints) {
             store = {}
@@ -43,7 +43,7 @@ let unsafeSet = (id, value, onComplete) => {
             store[id] = value
         }
 
-        chrome.storage.local.set({prints: store}, (data) => {
+        chrome.storage.sync.set({prints: store}, (data) => {
             onComplete()
         })
     })
@@ -127,7 +127,7 @@ let get = (id, onComplete) => {
 
         return
     }
-    chrome.storage.local.get(["storage"], (data) => {
+    chrome.storage.sync.get(["storage"], (data) => {
         let store
         if (!data.storage) {
             store = {}
@@ -149,7 +149,7 @@ let getKeys = (onComplete) => {
 
         return
     }
-    chrome.storage.local.get(["storage"], (data) => {
+    chrome.storage.sync.get(["storage"], (data) => {
         let store
         if (!data.storage) {
             store = {}
