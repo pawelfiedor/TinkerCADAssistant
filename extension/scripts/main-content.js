@@ -2387,28 +2387,30 @@ let printerViewEnable = () => {
         }
         .grid {
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 20px;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
         }
         .card {
             border: 1px solid #e2e8f0;
             border-radius: 8px;
-            padding: 12px;
+            padding: 8px;
             display: flex;
-            gap: 16px;
+            flex-direction: column;
+            gap: 8px;
             page-break-inside: avoid;
             break-inside: avoid;
             background: #fff;
         }
         .thumb-wrap {
-            width: 220px;
-            height: 165px;
+            width: 100%;
+            height: auto;
+            aspect-ratio: 4 / 3;
             background: #f1f5f9;
             border-radius: 6px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 48px;
+            font-size: 36px;
             overflow: hidden;
             flex-shrink: 0;
             border: 1px solid #e2e8f0;
@@ -2422,17 +2424,17 @@ let printerViewEnable = () => {
             display: flex;
             flex-direction: column;
             justify-content: center;
-            flex-grow: 1;
             min-width: 0;
         }
         .project-name {
             font-weight: 700;
-            font-size: 18px;
+            font-size: 13px;
             margin: 0;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
             color: #0f172a;
+            text-align: center;
         }
         @media print {
             body {
