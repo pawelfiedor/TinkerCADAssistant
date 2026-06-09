@@ -70,8 +70,11 @@ let downloadFolder = (className) => {
 /** Download file base name: "{username} {project name}". */
 let downloadFileBase = (username, projectName) => sanitizeName(`${username || ''} ${projectName || ''}`)
 
-/** CSG STL/SVG download URL for a design. */
+/** CSG STL/OBJ download URL for a design. */
 let designDownloadUrl = (designId, format) => `https://csg-prd.tinkercad.com/things/${designId}/polysoup.${format}?rev=-1`
+
+/** File extension for a download format. OBJ is served as a .zip (obj + mtl). */
+let downloadExt = (format) => format === "obj" ? "zip" : format
 
 /** Best thumbnail URL from a design object or stored project (detail > filmstrip). */
 let designThumbUrl = (d) => (d && d.thumbnail_json && (
@@ -267,21 +270,6 @@ let get = (id, onComplete) => {
 
     })
 }
-/**
- * Update class fully before then retrieving it
- * @param id
- * @param onComplete
- */
-let sasGet = (id, onComplete) => {
-    sasAllDataForClass(id, () => {
-        get(id, onComplete)
-    }, true)
-}
-let sasGetForActivity = (clazz, activity, onComplete, force = true) => {
-    sasAllDataForClassActivity(clazz, activity, () => {
-        get(clazz, onComplete)
-    }, force)
-}
 
 
 /**
@@ -402,7 +390,7 @@ let lazyDownloadAllButton = (format, itemFunction) => {
         itemFunction((directoryName, projects) => {
             let jobs = Object.values(projects).map((project) => ({
                 url: designDownloadUrl(project.id, format),
-                filename: `${directoryName}/${project.downloadName}.${format}`
+                filename: `${directoryName}/${project.downloadName}.${downloadExt(format)}`
             }))
             if (jobs.length === 0) {
                 alert("No projects to download")
@@ -476,12 +464,13 @@ let currentPage = Context.GENERAL
  * @param onComplete The function to run once condition is met.
  * @param delay Delay in MS to wait before checking again.
  * */
-let awaitResult = (condition, onComplete, delay = 1000) => {
+let awaitResult = (condition, onComplete, delay = 1000, isCancelled = () => false) => {
 
     setTimeout(() => {
+        if (isCancelled()) return
         let state = condition()
         if (!state) {
-            return awaitResult(condition, onComplete, delay)
+            return awaitResult(condition, onComplete, delay, isCancelled)
         }
 
         return onComplete()
@@ -613,14 +602,14 @@ let isActive = (message = false) => {
  * Download a project
  * @param project Download object, see example objects for example.
  * @param directoryName Name of directory that the items will be downloaded to
- * @param format Format to download the items as (STL SVG etc)
+ * @param format Format to download the items as (STL OBJ etc)
  * @param onComplete Callback run once download complete.
  */
 let download = (project, directoryName, format, onComplete = () => {
 }) => {
     downloadBatch([{
         url: designDownloadUrl(project.id, format),
-        filename: `${directoryName}/${project.downloadName}.${format}`
+        filename: `${directoryName}/${project.downloadName}.${downloadExt(format)}`
     }], () => {
     }, () => onComplete())
 }
@@ -965,6 +954,10 @@ let enableView = (id, enable, disable) => {
     views[id] = {id: id, enable: enable, disable: disable}
     let container = document.createElement("div")
     container.classList.add("view")
+    Object.assign(container.style, {
+        position: "fixed", inset: "0", zIndex: "2147483640",
+        display: "flex", flexDirection: "column", overflow: "hidden", background: "#fff"
+    })
     document.body.appendChild(container)
     enable(container)
 
@@ -999,358 +992,560 @@ let printerViewEnable = () => enableView("printer", (container) => {
 
 
 })
-let galleryViewEnable = (projects = null) => enableView("gallery", (container) => {
-    currentPage = Context.GALLERY
-    if (!projects)
-        updateStorage()
+let galleryViewEnable = (projects = null) => {
+    let prevPage = currentPage
+    return enableView("gallery", (container) => {
+        currentPage = Context.GALLERY
+        let active = true
+        let paused = false
+        let mode = "image" // "image" | "3d"
+        let list = []
+        let i = 0
 
-    let frame = document.createElement("iframe")
-    let h1 = document.createElement("h2")
-    h1.style.height = "5vh"
-    h1.style.width = "100vw"
-    h1.style.dir = "auto"
+        if (!projects)
+            updateStorage()
 
+        // ── Top progress bar (counts down to the next slide) ────────
+        let progress = document.createElement("div")
+        Object.assign(progress.style, {height: "3px", width: "100%", background: "#e2e8f0", flex: "0 0 auto"})
+        let progressFill = document.createElement("div")
+        Object.assign(progressFill.style, {height: "100%", width: "0%", background: "#4076c7"})
+        progress.appendChild(progressFill)
 
-    container.appendChild(h1)
-
-    container.appendChild(frame)
-
-
-    let setFrame = (id, name) => {
-
-        frame.src = `https://www.tinkercad.com/things/${id}/edit`
-        if (contains_heb(name)) {
-            h1.style.textAlign = "right"
-        } else h1.style.textAlign = "left"
-        h1.innerText = name
-        awaitResult(() => {
-            let document = frame.contentDocument
-            if (currentPage === Context.GALLERY && document) {
-                return document.querySelector("#viewcube-home-button")
-            }
-            return false
-        }, () => {
-            frame.contentDocument.querySelector("#sidebarContainer").remove()
-            frame.contentDocument.querySelector(".editor__tab__subnav").remove()
-            frame.contentDocument.querySelector(".editor__topnav").remove()
-            frame.contentDocument.querySelector(".hud").remove()
-            let canvas = frame.contentDocument.querySelector("canvas")
-            canvas.style.width = "100vw"
-            frame.style.height = "95vh"
-        }, 300)
-    }
-    frame.style.width = "100vw"
-    frame.style.height = "95vh"
-    let i = 1
-
-    let loop = (projects) => {
-        chrome.storage.local.get(["speed"], (data) => {
-            let speed = (data && data.speed != null) ? 6 - Number(data.speed) : 3
-            setTimeout(() => {
-                if (currentPage !== Context.GALLERY) return
-
-                if (projects.length <= i) i = 0
-
-                setFrame(projects[i].id, projects[i].name)
-                i++
-
-                loop(projects)
-
-            }, speed * 10000)
+        // ── Control bar ─────────────────────────────────────────────
+        let bar = document.createElement("div")
+        Object.assign(bar.style, {
+            display: "flex", alignItems: "center", gap: "10px",
+            flex: "0 0 auto", padding: "8px 12px", boxSizing: "border-box",
+            fontFamily: "Open Sans, Helvetica, Arial, sans-serif"
         })
-    }
+        let labels = document.createElement("div")
+        Object.assign(labels.style, {flex: "1", minWidth: "0", overflow: "hidden"})
+        let title = document.createElement("div")
+        Object.assign(title.style, {fontSize: "20px", fontWeight: "700", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"})
+        let subtitle = document.createElement("div")
+        Object.assign(subtitle.style, {fontSize: "13px", color: "#666", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"})
+        labels.appendChild(title)
+        labels.appendChild(subtitle)
+        let counter = document.createElement("span")
+        Object.assign(counter.style, {fontSize: "13px", color: "#666", minWidth: "60px", textAlign: "center"})
 
-    if (projects) {
-        setFrame(projects[0].id, projects[0].name)
-        loop(projects)
-    } else {
-        getGalleryProjects((projects) => {
-            setFrame(projects[0].id, projects[0].name)
-            loop(projects)
+        // ── Display stage (flex:1 — no page scrollbars) ─────────────
+        let stage = document.createElement("div")
+        Object.assign(stage.style, {
+            flex: "1", minHeight: "0", display: "flex",
+            alignItems: "center", justifyContent: "center",
+            background: "#f4f4f4", overflow: "hidden"
         })
-    }
-    container.appendChild(bigButton("Back", () => {
-        disableView("gallery")
-    }))
+        let img = document.createElement("img")
+        Object.assign(img.style, {maxWidth: "100%", maxHeight: "100%", objectFit: "contain"})
+        let frame = document.createElement("iframe")
+        Object.assign(frame.style, {width: "100%", height: "100%", border: "none", display: "none"})
+        let empty = document.createElement("div")
+        Object.assign(empty.style, {color: "#999", fontSize: "16px", display: "none"})
+        stage.appendChild(img)
+        stage.appendChild(frame)
+        stage.appendChild(empty)
 
+        container.appendChild(progress)
+        container.appendChild(bar)
+        container.appendChild(stage)
 
-}, () => {
-
-
-})
-let getGalleryProjects = (onComplete) => {
-    let projects = []
-    let i = 0
-    getKeys((keys => {
-        for (const clazzID of keys) {
-            get(clazzID, (clazz) => {
-
-                let students = []
-                for (const student of Object.values(clazz.students || {})) {
-                    if (student.badgeCount !== "0" && student.badgeCount !== null && student.badgeCount !== undefined) {
-                        students.push(student.id)
-                    }
+        let set3dFrame = (p) => {
+            frame.src = `https://www.tinkercad.com/things/${p.id}/edit`
+            awaitResult(() => {
+                let doc = frame.contentDocument
+                if (active && mode === "3d" && currentPage === Context.GALLERY && doc) {
+                    return doc.querySelector("#viewcube-home-button")
                 }
-                for (const activity of Object.values(clazz.activities || {})) {
-                    for (const project of Object.values(activity.projects || {})) {
-                        if (students.includes(project.author)) {
-                            projects.push(project)
-
-                        }
-
-                    }
-                }
-                //Hey there, since this whole thing is async, this needs to be done here :) Not outsideo f hte get(method) since this just has a callback and the rest continues onward :)
-                if (++i >= keys.length) {
-                    onComplete(projects)
-                }
-            })
-
+                return false
+            }, () => {
+                let doc = frame.contentDocument
+                doc.querySelector("#sidebarContainer")?.remove()
+                doc.querySelector(".editor__tab__subnav")?.remove()
+                doc.querySelector(".editor__topnav")?.remove()
+                doc.querySelector(".hud")?.remove()
+                let canvas = doc.querySelector("canvas")
+                if (canvas) canvas.style.width = "100%"
+            }, 300, () => !active || mode !== "3d")
         }
 
-    }))
+        let render = () => {
+            if (!list.length) {
+                img.style.display = "none"
+                frame.style.display = "none"
+                empty.style.display = "block"
+                empty.innerText = "No projects to show"
+                counter.innerText = ""
+                title.innerText = ""
+                subtitle.innerText = ""
+                return
+            }
+            let p = list[i]
+            title.innerText = p.name || "(untitled)"
+            title.style.direction = contains_heb(p.name || "") ? "rtl" : "ltr"
+            subtitle.innerText = [p.student, p.className].filter(Boolean).join(" · ")
+            counter.innerText = `${i + 1} / ${list.length}`
+            if (mode === "3d") {
+                img.style.display = "none"
+                empty.style.display = "none"
+                frame.style.display = "block"
+                set3dFrame(p)
+            } else {
+                frame.style.display = "none"
+                frame.src = "about:blank" // unload the heavy editor
+                if (p.thumb) {
+                    empty.style.display = "none"
+                    img.style.display = "block"
+                    img.src = p.thumb
+                    img.alt = p.name || ""
+                } else {
+                    img.style.display = "none"
+                    empty.style.display = "block"
+                    empty.innerText = "No thumbnail — use the 3D button"
+                }
+            }
+        }
 
+        let updatePauseLabel = () => {
+            pauseBtn.textContent = paused ? "Play" : "Pause"
+        }
+
+        // ── Auto-advance with a visual countdown ────────────────────
+        let timer = null
+        let resetProgress = () => {
+            progressFill.style.transition = "none"
+            progressFill.style.width = "0%"
+        }
+        let freezeProgress = () => {
+            if (timer) {
+                clearTimeout(timer)
+                timer = null
+            }
+            let w = getComputedStyle(progressFill).width
+            progressFill.style.transition = "none"
+            progressFill.style.width = w
+        }
+        let scheduleNext = () => {
+            if (timer) {
+                clearTimeout(timer)
+                timer = null
+            }
+            resetProgress()
+            if (paused || !active || list.length < 2) return
+            chrome.storage.local.get(["speed"], (data) => {
+                if (paused || !active || currentPage !== Context.GALLERY) return
+                let ms = ((data && data.speed != null) ? 6 - Number(data.speed) : 3) * 10000
+                void progressFill.offsetWidth // force reflow so the animation restarts
+                progressFill.style.transition = `width ${ms}ms linear`
+                progressFill.style.width = "100%"
+                timer = setTimeout(() => {
+                    if (paused || !active || currentPage !== Context.GALLERY) return
+                    i = (i + 1) % list.length
+                    render()
+                    scheduleNext()
+                }, ms)
+            })
+        }
+
+        let goTo = (idx, manualPause) => {
+            if (!list.length) return
+            i = (idx % list.length + list.length) % list.length
+            if (manualPause) paused = true
+            render()
+            updatePauseLabel()
+            if (paused) freezeProgress()
+            else scheduleNext()
+        }
+
+        // ── Controls ────────────────────────────────────────────────
+        let pauseBtn = bigButton("Pause", () => {
+            paused = !paused
+            updatePauseLabel()
+            if (paused) freezeProgress()
+            else scheduleNext()
+        })
+        let modeBtn = bigButton("3D", () => {
+            mode = mode === "3d" ? "image" : "3d"
+            modeBtn.textContent = mode === "3d" ? "Image" : "3D"
+            render()
+        })
+
+        bar.appendChild(bigButton("Back", () => {
+            active = false
+            if (timer) clearTimeout(timer)
+            currentPage = prevPage
+            disableView("gallery")
+        }))
+        bar.appendChild(labels)
+        bar.appendChild(counter)
+        bar.appendChild(bigButton("◀", () => goTo(i - 1, true)))
+        bar.appendChild(pauseBtn)
+        bar.appendChild(bigButton("▶", () => goTo(i + 1, true)))
+        bar.appendChild(modeBtn)
+
+        let begin = (items) => {
+            list = items || []
+            i = 0
+            render()
+            scheduleNext()
+        }
+        if (projects) {
+            begin(projects)
+        } else {
+            getGalleryProjects(begin)
+        }
+    }, () => {
+    })
+}
+/** Shape a stored project into a gallery item with student + class labels. */
+let toGalleryItem = (project, clazz) => ({
+    id: project.id,
+    name: project.name,
+    thumb: project.thumb || null,
+    student: (((clazz && clazz.students) || {})[project.author] || {}).name || null,
+    className: (clazz && clazz.name) || null
+})
+
+let getGalleryProjects = (onComplete) => {
+    let items = []
+    let i = 0
+    getKeys((keys) => {
+        if (!keys.length) {
+            onComplete([])
+            return
+        }
+        for (const clazzID of keys) {
+            get(clazzID, (clazz) => {
+                for (const activity of Object.values((clazz && clazz.activities) || {})) {
+                    for (const project of Object.values(activity.projects || {})) {
+                        items.push(toGalleryItem(project, clazz))
+                    }
+                }
+                // Async: must finish inside the get() callback, not outside it.
+                if (++i >= keys.length) {
+                    onComplete(items)
+                }
+            })
+        }
+    })
 }
 
 
 let teacherViewEnable = () => enableView("teacher", (container) => {
     currentPage = Context.TEACHER
-
-    let header = document.createElement("div")
-    let row = document.createElement("div")
-    let firstView = true
-
-
-    let frame = document.createElement("iframe")
-    let studentList = document.createElement("ul")
-
-
-    let previous
-    let setFrame = (id, elem) => {
-        frame.src = `https://www.tinkercad.com/things/${id}/edit`
-        if (previous) {
-            previous.style.border = "none"
-        }
-        elem.style.border = "2px solid #FFD700"
-        previous = elem
-
-    }
-
-    frame.style.border = "none"
-    frame.style.width = "87vw"
-    frame.style.height = "92vh"
-    header.style.height = "8vh"
-    header.style.display = "flex"
-    header.style.alignItems = "center"
-    header.style.justifyContent = "center"
-
-    // studentList.style.alignItems = "center"
-    studentList.style.width = "13vw"
-    studentList.style.listStyleType = "none"
-    studentList.style.padding = "0"
-    studentList.style.display = "inline"
-    studentList.style.overflow = "hidden"
-    studentList.style.overflowY = "scroll"
-    studentList.style.height = "90vh"
-    row.style.display = "flex"
-
-    container.appendChild(header)
-    row.appendChild(frame)
-    row.appendChild(studentList)
-    container.appendChild(row)
-
+    let active = true
 
     getCurrentActivityAndClassID((clazzID, activityID) => {
-        get(clazzID, (clazz) => {
-
-
-            let first = true
-            if (clazz.activities)
-                if (clazz.activities[activityID])
-                    for (let project of Object.values(clazz.activities[activityID].projects || {})) {
-
-                        let b = smallButton(((clazz.students || {})[project.author] || {}).name || project.author, () => {
-                            setFrame(project.id, b)
-                        })
-                        if (first) {
-                            setFrame(project.id, b)
-                            first = false
-                        }
-                        b.id = project.id
-                        b.classList.add("selection")
-                        b.style.width = "13vw"
-
-                        studentList.appendChild(b)
-
-                    }
-            let updateSelection = (onComplete) => {
-                get(clazzID, (clazz) => {
-
-
-                    let getProjects = () => {
-                        if (!clazz.activities[activityID]) return []
-                        return clazz.activities[activityID].projects
-                    }
-                    let projectIDS = () => {
-                        let ids = []
-                        for (const project of Object.values(getProjects())) {
-                            ids.push(project.id)
-                        }
-                        return ids
-                    }
-
-
-                    let alreadyActive = []
-                    let ids = projectIDS()
-                    for (const elem of document.querySelectorAll(".selection")) {
-                        if (!ids.includes(elem.id)) {
-                            elem.remove()
-                        } else {
-                            alreadyActive.push(elem.id)
-                        }
-                    }
-
-                    for (const project of Object.values(getProjects())) {
-
-                        if (alreadyActive.includes(project.id)) {
-                            continue
-                        }
-                        let b = smallButton(((clazz.students || {})[project.author] || {}).name || project.author, () => {
-                            setFrame(project.id, b)
-                        })
-                        b.id = project.id
-                        b.classList.add("selection")
-                        b.style.width = "13vw"
-                        studentList.appendChild(b)
-
-                    }
-                    onComplete()
-                })
-            }
-
-            let update = (onComplete) => {
-                if (firstView) {
-                    fullReload(onComplete)
-                    firstView = false
-                } else {
-                    sasGetProjectsOfActivity(clazzID, activityID, () => {
-                        updateSelection(onComplete)
-                    }, true)
-                }
-
-
-            }
-            let fullReload = (onComplete = () => {
-            }) => {
-                sasGetForActivity(clazzID, activityID, () => {
-                    updateSelection(() => {
-                        console.log("Full reload done!")
-                        onComplete()
-                    })
-                })
-            }
-            //ID Used in case a user clicks multiple times on the auto button :)
-            let autoPlayID = 0
-
-            let autPlayLoop = (id) => {
-                chrome.storage.local.get(["speed"], (data) => {
-                    let speed = 3
-                    if (data && data.speed != null)
-                        speed = 6 - Number(data.speed)
-
-
-                    setTimeout(() => {
-                        if (autoPlayID === id && currentPage === Context.TEACHER) {
-                            let items = document.querySelectorAll(".selection")
-                            let next = false
-                            let i = 0
-                            for (const item of items) {
-                                if (++i >= items.length) {
-                                    setFrame(items[0].id, items[0])
-                                }
-                                if (next) {
-                                    setFrame(item.id, item)
-                                    break
-                                }
-                                if (item === previous) {
-                                    next = true
-                                }
-                            }
-                            autPlayLoop(id)
-                        }
-                    }, speed * 10000)
-                })
-            }
-
-            function isOdd(num) {
-                return num % 2;
-            }
-
-            let autoButton = bigButton("Auto", () => {
-
-                if (isOdd(++autoPlayID)) {
-                    autoButton.style.backgroundColor = "#4076c7"
-                    autoButton.style.color = "#fff"
-                    autPlayLoop(autoPlayID)
-                } else {
-                    autoButton.style.backgroundColor = "#fff"
-                    autoButton.style.color = "#4076c7"
-                }
-
-
-            })
-
-
-            let loop = () => {
-
-                setTimeout(() => {
-                    update(() => {
-                        if (currentPage === Context.TEACHER) {
-                            console.log("Little update run!")
-                            loop()
-                        } else {
-                            console.log("Update loop stopped!")
-                        }
-                    })
-
-                }, 5000)
-            }
-            loop()
-
-
-            /**
-             * Visual placement of items.
-             */
-            header.classList.add("btn-group")
-            header.style.display = "flex"
-            header.style.padding = "1%"
-            header.appendChild(bigButton("Back", () => {
-                disableView("teacher")
-                currentPage = Context.ACTIVITY
-            }))
-
-            let applyHeader = (newClazz) => {
-                header.appendChild(bigButton(newClazz.code, () => copyTextToClipboard(newClazz.code.replaceAll("-", ""))))
-                header.appendChild(autoButton)
-
-                header.appendChild(bigButton("Reload", () => {
-                    fullReload()
-                }))
-            }
-            if (!clazz.code) {
-                sasStudentsAndClassCodeOf(clazzID, () => {
-                    get(clazzID, (newClazz) => {
-                        applyHeader(newClazz)
-                    })
-                })
-            } else {
-                applyHeader(clazz)
-            }
-
-
+        // ── Layout: header + thumbnail grid ─────────────────────────
+        let header = document.createElement("div")
+        header.classList.add("btn-group")
+        Object.assign(header.style, {
+            display: "flex", alignItems: "center", gap: "8px", flex: "0 0 auto",
+            padding: "6px 12px", boxSizing: "border-box", flexWrap: "wrap",
+            fontFamily: "Open Sans, Helvetica, Arial, sans-serif"
         })
-    })
+        let heading = document.createElement("div")
+        Object.assign(heading.style, {fontSize: "15px", fontWeight: "700", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "40vw"})
+        let count = document.createElement("span")
+        Object.assign(count.style, {fontSize: "13px", color: "#666", marginLeft: "auto"})
+        let grid = document.createElement("div")
+        Object.assign(grid.style, {
+            display: "flex", flexWrap: "wrap", gap: "12px", padding: "12px",
+            flex: "1", minHeight: "0", overflowY: "auto", alignContent: "flex-start", boxSizing: "border-box"
+        })
+        container.appendChild(header)
+        container.appendChild(grid)
 
+        // ── Enlarge overlay ─────────────────────────────────────────
+        let overlay = document.createElement("div")
+        Object.assign(overlay.style, {
+            position: "fixed", inset: "0", background: "rgba(0,0,0,0.88)", display: "none",
+            flexDirection: "column", alignItems: "center", justifyContent: "center",
+            zIndex: "2147483646", fontFamily: "Open Sans, Helvetica, Arial, sans-serif"
+        })
+        let ovTitle = document.createElement("div")
+        Object.assign(ovTitle.style, {color: "#fff", fontSize: "18px", fontWeight: "700", margin: "8px 0"})
+        let ovImg = document.createElement("img")
+        Object.assign(ovImg.style, {maxWidth: "90vw", maxHeight: "74vh", objectFit: "contain", background: "#fff", borderRadius: "6px"})
+        let ovFrame = document.createElement("iframe")
+        Object.assign(ovFrame.style, {width: "90vw", height: "74vh", border: "none", display: "none", background: "#fff", borderRadius: "6px"})
+        let ovBar = document.createElement("div")
+        Object.assign(ovBar.style, {display: "flex", gap: "8px", marginTop: "12px", flexWrap: "wrap", justifyContent: "center"})
+        overlay.appendChild(ovTitle)
+        overlay.appendChild(ovImg)
+        overlay.appendChild(ovFrame)
+        overlay.appendChild(ovBar)
+        container.appendChild(overlay)
+
+        // ── State ───────────────────────────────────────────────────
+        let items = []        // {id, name, student, thumb, author}
+        let cardEls = []
+        let sel = -1
+        let ovOpen = false
+        let ovMode = "image"  // "image" | "3d"
+        let autoId = 0
+        let autoOn = false
+        let className = ""
+        let activityName = ""
+        let codeAdded = false
+        let SIZES = [180, 260, 360] // card widths in px; first = current minimum
+        let sizeIdx = 0
+
+        let buildItems = (clazz) => {
+            let act = ((clazz && clazz.activities) || {})[activityID] || {}
+            return Object.values(act.projects || {}).map((p) => ({
+                id: p.id,
+                name: p.name,
+                author: p.author,
+                thumb: p.thumb || null,
+                student: (((clazz && clazz.students) || {})[p.author] || {}).name || p.author
+            }))
+        }
+
+        let highlight = () => {
+            cardEls.forEach((c, idx) => {
+                c.style.border = idx === sel ? "2px solid #4076c7" : "2px solid transparent"
+            })
+        }
+
+        let renderGrid = () => {
+            grid.innerHTML = ""
+            cardEls = []
+            count.innerText = `${items.length} project${items.length === 1 ? "" : "s"}`
+            items.forEach((it, idx) => {
+                let cardW = SIZES[sizeIdx]
+                let card = document.createElement("div")
+                Object.assign(card.style, {
+                    width: `${cardW}px`, cursor: "pointer", border: "2px solid transparent",
+                    borderRadius: "8px", overflow: "hidden", background: "#fff", boxShadow: "0 1px 4px rgba(0,0,0,0.12)"
+                })
+                let thumbWrap = document.createElement("div")
+                Object.assign(thumbWrap.style, {
+                    width: "100%", height: `${Math.round(cardW * 0.75)}px`, background: "#f1f5f9", display: "flex",
+                    alignItems: "center", justifyContent: "center", overflow: "hidden", fontSize: "32px"
+                })
+                if (it.thumb) {
+                    let im = document.createElement("img")
+                    Object.assign(im.style, {width: "100%", height: "100%", objectFit: "cover"})
+                    im.src = it.thumb
+                    im.alt = it.name || ""
+                    thumbWrap.appendChild(im)
+                } else {
+                    thumbWrap.textContent = "🧊"
+                }
+                let lbl = document.createElement("div")
+                Object.assign(lbl.style, {padding: "6px 8px", fontSize: "13px", fontWeight: "600", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"})
+                lbl.textContent = it.student
+                lbl.title = `${it.student} — ${it.name || ""}`
+                card.appendChild(thumbWrap)
+                card.appendChild(lbl)
+                card.onclick = () => openOverlay(idx)
+                grid.appendChild(card)
+                cardEls.push(card)
+            })
+            highlight()
+        }
+
+        let renderOverlay = () => {
+            if (sel < 0 || sel >= items.length) return
+            let it = items[sel]
+            ovTitle.textContent = `${it.student} — ${it.name || ""}`
+            ovTitle.style.direction = contains_heb(it.name || "") ? "rtl" : "ltr"
+            if (ovMode === "3d") {
+                ovImg.style.display = "none"
+                ovFrame.style.display = "block"
+                ovFrame.src = `https://www.tinkercad.com/things/${it.id}/edit`
+                awaitResult(() => {
+                    let doc = ovFrame.contentDocument
+                    if (active && ovOpen && ovMode === "3d" && doc) return doc.querySelector("#viewcube-home-button")
+                    return false
+                }, () => {
+                    let doc = ovFrame.contentDocument
+                    doc.querySelector("#sidebarContainer")?.remove()
+                    doc.querySelector(".editor__tab__subnav")?.remove()
+                    doc.querySelector(".editor__topnav")?.remove()
+                    doc.querySelector(".hud")?.remove()
+                }, 300, () => !active || !ovOpen || ovMode !== "3d")
+            } else {
+                ovFrame.style.display = "none"
+                ovFrame.src = "about:blank"
+                ovImg.style.display = "block"
+                ovImg.src = it.thumb || ""
+                ovImg.alt = it.name || ""
+            }
+        }
+
+        let openOverlay = (idx) => {
+            if (!items.length) return
+            sel = (idx % items.length + items.length) % items.length
+            ovOpen = true
+            ovMode = "image"
+            modeBtn.textContent = "3D"
+            overlay.style.display = "flex"
+            highlight()
+            renderOverlay()
+        }
+        let closeOverlay = () => {
+            ovOpen = false
+            ovFrame.src = "about:blank"
+            overlay.style.display = "none"
+        }
+        let move = (delta) => {
+            if (!items.length) return
+            if (!ovOpen) {
+                openOverlay(0)
+                return
+            }
+            sel = (sel + delta + items.length) % items.length
+            ovMode = "image"
+            modeBtn.textContent = "3D"
+            highlight()
+            renderOverlay()
+        }
+
+        // ── Overlay controls ────────────────────────────────────────
+        let modeBtn = bigButton("3D", () => {
+            ovMode = ovMode === "3d" ? "image" : "3d"
+            modeBtn.textContent = ovMode === "3d" ? "Image" : "3D"
+            renderOverlay()
+        })
+        ovBar.appendChild(bigButton("◀", () => move(-1)))
+        ovBar.appendChild(modeBtn)
+        ovBar.appendChild(bigButton("STL", () => {
+            let it = items[sel]
+            if (!it) return
+            download({id: it.id, downloadName: downloadFileBase(it.student, it.name)}, downloadFolder(className || "TinkerCAD"), "stl")
+        }))
+        ovBar.appendChild(bigButton("PNG", () => {
+            let it = items[sel]
+            if (!it) return
+            if (!it.thumb) {
+                alert("No thumbnail for this project")
+                return
+            }
+            downloadBatch([{url: it.thumb, filename: `${downloadFolder(className || "TinkerCAD")}/${downloadFileBase(it.student, it.name)}.png`}])
+        }))
+        ovBar.appendChild(bigButton("Open in 3D ↗", () => {
+            let it = items[sel]
+            if (it) openTab(`https://www.tinkercad.com/things/${it.id}/edit`)
+        }))
+        ovBar.appendChild(bigButton("▶", () => move(1)))
+        ovBar.appendChild(bigButton("Close", () => closeOverlay()))
+
+        // ── Auto-play (cycles the enlarged overlay) ─────────────────
+        let autoLoop = (id) => {
+            chrome.storage.local.get(["speed"], (data) => {
+                let speed = (data && data.speed != null) ? 6 - Number(data.speed) : 3
+                setTimeout(() => {
+                    if (!active || currentPage !== Context.TEACHER || autoId !== id) return
+                    if (items.length) {
+                        if (!ovOpen) openOverlay(0)
+                        else move(1)
+                    }
+                    autoLoop(id)
+                }, speed * 10000)
+            })
+        }
+        let toggleAuto = () => {
+            autoOn = !autoOn
+            autoBtn.style.backgroundColor = autoOn ? "#4076c7" : "#fff"
+            autoBtn.style.color = autoOn ? "#fff" : "#4076c7"
+            autoId++
+            if (autoOn) autoLoop(autoId)
+        }
+
+        // ── Keyboard: ←/→ navigate, Space toggles Auto, Esc closes ──
+        let onKey = (e) => {
+            if (!active || currentPage !== Context.TEACHER) return
+            if (e.key === "ArrowRight") {
+                move(1)
+                e.preventDefault()
+            } else if (e.key === "ArrowLeft") {
+                move(-1)
+                e.preventDefault()
+            } else if (e.key === "Escape") {
+                if (ovOpen) closeOverlay()
+            } else if (e.code === "Space") {
+                toggleAuto()
+                e.preventDefault()
+            }
+        }
+        document.addEventListener("keydown", onKey)
+
+        // ── Header buttons ──────────────────────────────────────────
+        header.appendChild(bigButton("Back", () => {
+            active = false
+            autoId++
+            document.removeEventListener("keydown", onKey)
+            currentPage = Context.ACTIVITY
+            disableView("teacher")
+        }))
+        header.appendChild(heading)
+        let autoBtn = bigButton("Auto", () => toggleAuto())
+        header.appendChild(autoBtn)
+        header.appendChild(bigButton("Reload", () => load()))
+        // Thumbnail size selector (S = current minimum, M, L)
+        let sizeBtns = []
+        let setSize = (idx) => {
+            sizeIdx = idx
+            sizeBtns.forEach((b, k) => {
+                b.style.backgroundColor = k === idx ? "#4076c7" : "#fff"
+                b.style.color = k === idx ? "#fff" : "#4076c7"
+            })
+            renderGrid()
+        }
+        ;["S", "M", "L"].forEach((labelTxt, idx) => {
+            let b = bigButton(labelTxt, () => setSize(idx))
+            sizeBtns.push(b)
+            header.appendChild(b)
+        })
+        header.appendChild(count)
+        setSize(0)
+
+        // ── Data load (full) + light periodic refresh ──────────────
+        let rebuild = (done = () => {
+        }) => {
+            get(clazzID, (clazz) => {
+                clazz = clazz || {}
+                className = clazz.name || ""
+                activityName = (((clazz.activities || {})[activityID]) || {}).name || ""
+                heading.textContent = [className, activityName].filter(Boolean).join(" · ") || activityID
+                if (!codeAdded && clazz.code) {
+                    codeAdded = true
+                    let codeBtn = bigButton(String(clazz.code), () => copyTextToClipboard(String(clazz.code).replaceAll("-", "")))
+                    header.insertBefore(codeBtn, autoBtn)
+                }
+                let prevId = (sel >= 0 && sel < items.length) ? items[sel].id : null
+                items = buildItems(clazz)
+                if (prevId) {
+                    let ni = items.findIndex((x) => x.id === prevId)
+                    sel = ni >= 0 ? ni : (items.length ? Math.min(sel, items.length - 1) : -1)
+                }
+                renderGrid()
+                if (ovOpen) {
+                    if (sel >= 0) renderOverlay()
+                    else closeOverlay()
+                }
+                done()
+            })
+        }
+        let load = (done = () => {
+        }) => sasAllDataForClassActivity(clazzID, activityID, () => rebuild(done), true)
+        let refresh = (done = () => {
+        }) => sasGetProjectsOfActivity(clazzID, activityID, () => rebuild(done), true)
+
+        let pollLoop = () => {
+            setTimeout(() => {
+                if (!active || currentPage !== Context.TEACHER) return
+                refresh()
+                pollLoop()
+            }, 30000)
+        }
+
+        load()
+        pollLoop()
+    })
 
 }, () => {
 })
@@ -1451,9 +1646,9 @@ let main = () => {
                     })
                 })
             })
-            button("SVG", () => {
+            button("OBJ", () => {
                 resolveDownloadTarget(id, name, (folder, fileBase) => {
-                    download({id: id, downloadName: fileBase}, folder, "svg", () => {
+                    download({id: id, downloadName: fileBase}, folder, "obj", () => {
                     })
                 })
             })
@@ -1480,13 +1675,13 @@ let main = () => {
     onElementLoad(".class-projects-list-toolbar", "gallery", (container) => {
         let elem = bigButton("Gallery", () => {
             getCurrentClazz((clazz) => {
-                let projects = []
-                for (const activities of Object.values(clazz.activities)) {
-                    for (const project of Object.values(activities.projects)) {
-                        projects.push(project)
+                let items = []
+                for (const activities of Object.values((clazz && clazz.activities) || {})) {
+                    for (const project of Object.values(activities.projects || {})) {
+                        items.push(toGalleryItem(project, clazz))
                     }
                 }
-                galleryViewEnable(projects)
+                galleryViewEnable(items)
             })
 
 
@@ -1506,8 +1701,12 @@ let main = () => {
         }))
 
         elem.appendChild(bigButton("Gallery", () => {
-            getCurrentActivity((activity) => {
-                galleryViewEnable(Object.values(activity.projects))
+            getCurrentActivityAndClassID((clazzID, activityID) => {
+                get(clazzID, (clazz) => {
+                    let act = ((clazz && clazz.activities) || {})[activityID] || {}
+                    let items = Object.values(act.projects || {}).map((p) => toGalleryItem(p, clazz))
+                    galleryViewEnable(items)
+                })
             })
         }))
 
@@ -1538,7 +1737,7 @@ let main = () => {
                 }
 
                 elem.appendChild(lazyDownloadAllButton("stl", lazyAction))
-                elem.appendChild(lazyDownloadAllButton("svg", lazyAction))
+                elem.appendChild(lazyDownloadAllButton("obj", lazyAction))
                 elem.appendChild(lazyDownloadAllThumbnailsButton(lazyAction))
             })
 
