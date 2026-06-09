@@ -1073,6 +1073,7 @@ let printerViewEnable = () => {
         let cardById = new Map()   // id -> card element
         let SIZES = [180, 260, 360]
         let sizeIdx = 0
+        let groupByClass = true
 
         // ── Header ──────────────────────────────────────────────────
         let header = document.createElement("div")
@@ -1086,8 +1087,12 @@ let printerViewEnable = () => {
         titleEl.style.fontSize = "16px"
         let filterInput = document.createElement("input")
         filterInput.type = "search"
-        filterInput.placeholder = "Filter by student / class / project…"
-        Object.assign(filterInput.style, {padding: "6px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", minWidth: "200px"})
+        filterInput.placeholder = "Filter by student / class…"
+        Object.assign(filterInput.style, {padding: "6px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", minWidth: "180px"})
+        let nameFilterInput = document.createElement("input")
+        nameFilterInput.type = "search"
+        nameFilterInput.placeholder = "Filter by project name…"
+        Object.assign(nameFilterInput.style, {padding: "6px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", minWidth: "180px"})
         let dateSelect = document.createElement("select")
         Object.assign(dateSelect.style, {padding: "6px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px"})
         ;[
@@ -1103,6 +1108,7 @@ let printerViewEnable = () => {
             o.textContent = t
             dateSelect.appendChild(o)
         })
+        dateSelect.value = "thisWeek"
         let selCount = document.createElement("span")
         Object.assign(selCount.style, {fontSize: "13px", color: "#666", marginLeft: "auto"})
 
@@ -1123,10 +1129,12 @@ let printerViewEnable = () => {
         }
         let visibleItems = () => {
             let ft = filterInput.value.trim().toLowerCase()
+            let nft = nameFilterInput.value.trim().toLowerCase()
             let range = dateSelect.value
             return allItems.filter((it) => {
                 if (!inDateRange(toMillis(it.mtime), range)) return false
                 if (ft && !`${it.student} ${it.className} ${it.name}`.toLowerCase().includes(ft)) return false
+                if (nft && !`${it.name}`.toLowerCase().includes(nft)) return false
                 return true
             })
         }
@@ -1165,7 +1173,11 @@ let printerViewEnable = () => {
                 let im = document.createElement("img")
                 Object.assign(im.style, {width: "100%", height: "100%", objectFit: "cover"})
                 im.src = it.thumb
-                im.alt = it.name || ""
+                im.alt = ""
+                im.onerror = () => {
+                    im.style.display = "none"
+                    thumbWrap.textContent = "🧊"
+                }
                 thumbWrap.appendChild(im)
             } else {
                 thumbWrap.textContent = "🧊"
@@ -1173,12 +1185,16 @@ let printerViewEnable = () => {
             let lbl = document.createElement("div")
             Object.assign(lbl.style, {padding: "6px 8px 0", fontSize: "13px", fontWeight: "600", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"})
             lbl.textContent = it.student || "(unknown)"
+            let projEl = document.createElement("div")
+            Object.assign(projEl.style, {padding: "2px 8px 0", fontSize: "12px", color: "#1e293b", fontWeight: "500", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"})
+            projEl.textContent = it.name || "(untitled)"
             let sub = document.createElement("div")
             Object.assign(sub.style, {padding: "0 8px 6px", fontSize: "11px", color: "#64748b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"})
-            sub.textContent = [it.className, it.name].filter(Boolean).join(" · ")
+            sub.textContent = it.className || ""
             lbl.title = `${it.student || "?"} — ${it.name || ""}`
             card.appendChild(thumbWrap)
             card.appendChild(lbl)
+            card.appendChild(projEl)
             card.appendChild(sub)
             card.onclick = () => toggle(it.id, card)
             return card
@@ -1266,6 +1282,266 @@ let printerViewEnable = () => {
             downloadBatch(jobs)
         }
 
+        let printReport = () => {
+            let chosen = allItems.filter((it) => selected.has(it.id))
+            if (!chosen.length) {
+                alert("No selected projects to print")
+                return
+            }
+            let win = window.open("", "_blank")
+            if (!win) {
+                alert("Please allow popups to generate the report.")
+                return
+            }
+            let escapeHtml = (str) => {
+                if (!str) return ""
+                return str
+                    .replaceAll("&", "&amp;")
+                    .replaceAll("<", "&lt;")
+                    .replaceAll(">", "&gt;")
+                    .replaceAll('"', "&quot;")
+                    .replaceAll("'", "&#039;")
+            }
+            let formatDate = (mtime) => {
+                if (!mtime) return "N/A"
+                try {
+                    let ms = toMillis(mtime)
+                    return new Date(ms).toLocaleDateString("pl-PL")
+                } catch (e) {
+                    return "N/A"
+                }
+            }
+
+            // Group projects by class name
+            let groups = new Map()
+            chosen.forEach((it) => {
+                let key = it.className || "(unknown class)"
+                if (!groups.has(key)) {
+                    groups.set(key, [])
+                }
+                groups.get(key).push(it)
+            })
+
+            let sectionsHtml = ""
+            groups.forEach((items, className) => {
+                let cardsHtml = items.map((it) => {
+                    let dateStr = formatDate(it.mtime)
+                    let imgHtml = ""
+                    if (it.thumb) {
+                        imgHtml = `<img src="${it.thumb}" alt="" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">`
+                    }
+                    return `
+                    <div class="card">
+                        <div class="thumb-wrap">
+                            ${imgHtml}
+                            <span style="display: ${it.thumb ? 'none' : 'block'};">🧊</span>
+                        </div>
+                        <div class="info">
+                            <div>
+                                <h2 class="student">${escapeHtml(it.student || '(unknown)')}</h2>
+                                <div class="details"><strong>Project:</strong> ${escapeHtml(it.name || '(untitled)')}</div>
+                            </div>
+                            <div>
+                                <div class="date">Modified: ${dateStr}</div>
+                                <div class="checklist">
+                                    <span><span class="chk-box"></span>Printed</span>
+                                    <span><span class="chk-box"></span>Verified</span>
+                                    <span style="display: flex; flex-grow: 1; align-items: center;">Notes:<span class="notes-line"></span></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    `
+                }).join("")
+
+                sectionsHtml += `
+                <div class="class-section">
+                    <h2 class="class-header">${escapeHtml(className)} (${items.length})</h2>
+                    <div class="grid">
+                        ${cardsHtml}
+                    </div>
+                </div>
+                `
+            })
+
+            let html = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>TinkerCAD Print Verification Report</title>
+    <style>
+        body {
+            font-family: 'Open Sans', Helvetica, Arial, sans-serif;
+            color: #1e293b;
+            margin: 0;
+            padding: 20px;
+            background: #fff;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #cbd5e1;
+            padding-bottom: 12px;
+            margin-bottom: 24px;
+        }
+        h1 {
+            font-size: 24px;
+            margin: 0;
+            color: #0f172a;
+        }
+        .meta {
+            font-size: 13px;
+            color: #64748b;
+            text-align: right;
+        }
+        .class-section {
+            margin-bottom: 32px;
+            page-break-inside: auto;
+            break-inside: auto;
+        }
+        .class-header {
+            font-size: 16px;
+            font-weight: 700;
+            color: #4076c7;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 6px;
+            margin: 0 0 12px 0;
+            page-break-after: avoid;
+            break-after: avoid;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+        .card {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 12px;
+            display: flex;
+            gap: 16px;
+            page-break-inside: avoid;
+            break-inside: avoid;
+            background: #fff;
+        }
+        .thumb-wrap {
+            width: 120px;
+            height: 90px;
+            background: #f1f5f9;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            overflow: hidden;
+            flex-shrink: 0;
+            border: 1px solid #e2e8f0;
+        }
+        .thumb-wrap img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .info {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            flex-grow: 1;
+            min-width: 0;
+        }
+        .student {
+            font-weight: 700;
+            font-size: 15px;
+            margin: 0 0 4px 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .details {
+            font-size: 12px;
+            color: #475569;
+            margin: 0 0 4px 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .date {
+            font-size: 11px;
+            color: #94a3b8;
+            margin-bottom: 8px;
+        }
+        .checklist {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #475569;
+            border-top: 1px dashed #e2e8f0;
+            padding-top: 6px;
+        }
+        .chk-box {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 1px solid #64748b;
+            border-radius: 2px;
+            margin-right: 4px;
+            vertical-align: middle;
+        }
+        .notes-line {
+            flex-grow: 1;
+            border-bottom: 1px dotted #94a3b8;
+            height: 12px;
+            margin-left: 4px;
+        }
+        @media print {
+            body {
+                padding: 0;
+            }
+            header {
+                margin-bottom: 16px;
+            }
+            .card {
+                border: 1px solid #cbd5e1;
+            }
+            .card {
+                page-break-inside: avoid;
+                break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div>
+            <h1>TinkerCAD Print Verification Report</h1>
+            <div style="font-size: 13px; color: #475569; margin-top: 4px;">Selected Groups: ${groups.size} · Total Projects: ${chosen.length}</div>
+        </div>
+        <div class="meta">
+            <div>Date: ${new Date().toLocaleDateString("pl-PL")}</div>
+            <div>Generated by TinkerCAD Assistant</div>
+        </div>
+    </header>
+    
+    ${sectionsHtml}
+
+    <script>
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                window.print();
+            }, 600);
+        });
+    <\/script>
+</body>
+</html>
+            `
+            win.document.write(html)
+            win.document.close()
+        }
+
         // ── Header controls ─────────────────────────────────────────
         header.appendChild(bigButton("Back", () => {
             currentPage = prevPage
@@ -1273,6 +1549,7 @@ let printerViewEnable = () => {
         }))
         header.appendChild(titleEl)
         header.appendChild(filterInput)
+        header.appendChild(nameFilterInput)
         header.appendChild(dateSelect)
         let groupBtn = bigButton("Group: on", () => {
             groupByClass = !groupByClass
@@ -1284,6 +1561,7 @@ let printerViewEnable = () => {
         header.appendChild(bigButton("Clear", () => clearAll()))
         header.appendChild(bigButton("Download STL", () => bulk("stl")))
         header.appendChild(bigButton("Download OBJ", () => bulk("obj")))
+        header.appendChild(bigButton("Print Report", () => printReport()))
         let sizeBtns = []
         let setSize = (idx) => {
             sizeIdx = idx
@@ -1302,6 +1580,7 @@ let printerViewEnable = () => {
         sizeBtns[0].style.color = "#fff"
         header.appendChild(selCount)
         filterInput.addEventListener("input", () => renderGrid())
+        nameFilterInput.addEventListener("input", () => renderGrid())
         dateSelect.addEventListener("change", () => renderGrid())
         updateSelCount()
 
@@ -1358,6 +1637,11 @@ let galleryViewEnable = (projects = null) => {
         })
         let img = document.createElement("img")
         Object.assign(img.style, {maxWidth: "100%", maxHeight: "100%", objectFit: "contain"})
+        img.onerror = () => {
+            img.style.display = "none"
+            empty.style.display = "block"
+            empty.innerText = "No thumbnail — use the 3D button"
+        }
         let frame = document.createElement("iframe")
         Object.assign(frame.style, {width: "100%", height: "100%", border: "none", display: "none"})
         let empty = document.createElement("div")
@@ -1655,17 +1939,25 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
                     let im = document.createElement("img")
                     Object.assign(im.style, {width: "100%", height: "100%", objectFit: "cover"})
                     im.src = it.thumb
-                    im.alt = it.name || ""
+                    im.alt = ""
+                    im.onerror = () => {
+                        im.style.display = "none"
+                        thumbWrap.textContent = "🧊"
+                    }
                     thumbWrap.appendChild(im)
                 } else {
                     thumbWrap.textContent = "🧊"
                 }
                 let lbl = document.createElement("div")
-                Object.assign(lbl.style, {padding: "6px 8px", fontSize: "13px", fontWeight: "600", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"})
+                Object.assign(lbl.style, {padding: "6px 8px 0", fontSize: "13px", fontWeight: "600", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"})
                 lbl.textContent = it.student
+                let projEl = document.createElement("div")
+                Object.assign(projEl.style, {padding: "0 8px 6px", fontSize: "11px", color: "#64748b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"})
+                projEl.textContent = it.name || "(untitled)"
                 lbl.title = `${it.student} — ${it.name || ""}`
                 card.appendChild(thumbWrap)
                 card.appendChild(lbl)
+                card.appendChild(projEl)
                 card.onclick = () => openOverlay(idx)
                 grid.appendChild(card)
                 cardEls.push(card)

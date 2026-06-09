@@ -37,8 +37,38 @@ const tcApi = {
     /** Teacher's own classes (groups). Each carries name + join `code`. */
     async classes() {
         let uid = await this.myUserId()
-        let raw = await this._get(`/users/${uid}/groups`)
-        return Array.isArray(raw) ? raw : (raw && (raw.groups || raw.data)) || []
+        let ownGroups = []
+        try {
+            let raw = await this._get(`/users/${uid}/groups`)
+            ownGroups = Array.isArray(raw) ? raw : (raw && (raw.groups || raw.data)) || []
+        } catch (err) {
+            throw err
+        }
+
+        let coGroups = []
+        try {
+            let raw = await this._get(`/coteachers/listClasses`)
+            coGroups = Array.isArray(raw) ? raw : (raw && (raw.classes || raw.groups || raw.data || Object.values(raw).find(Array.isArray))) || []
+        } catch (err) {
+            console.warn('Failed to fetch co-teaching classes:', err)
+        }
+
+        let merged = new Map()
+        for (let g of ownGroups) {
+            if (g && g.id) {
+                merged.set(g.id, g)
+            }
+        }
+        for (let g of coGroups) {
+            if (g && g.id) {
+                if (merged.has(g.id)) {
+                    merged.set(g.id, Object.assign({}, merged.get(g.id), g))
+                } else {
+                    merged.set(g.id, g)
+                }
+            }
+        }
+        return Array.from(merged.values())
     },
 
     /** A single class (group) object by id, taken from the classes list. */
