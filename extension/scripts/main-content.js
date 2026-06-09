@@ -61,6 +61,59 @@ let isoWeek = (date = new Date()) => {
     return {year: d.getUTCFullYear(), week}
 }
 
+/** Normalize a TinkerCAD timestamp (ns / µs / s / ms / ISO) to milliseconds. */
+let toMillis = (v) => {
+    if (v == null) return null
+    let n = Number(v)
+    if (!isNaN(n) && n > 0) {
+        if (n > 1e16) return Math.round(n / 1e6)   // nanoseconds
+        if (n > 1e13) return Math.round(n / 1e3)   // microseconds
+        if (n > 1e9 && n < 1e10) return n * 1000   // seconds
+        return n                                    // milliseconds
+    }
+    let d = new Date(v)
+    return isNaN(d.getTime()) ? null : d.getTime()
+}
+/** Start (00:00, local) of the Monday-based week containing d. */
+let startOfWeek = (d) => {
+    let x = new Date(d)
+    x.setHours(0, 0, 0, 0)
+    let day = (x.getDay() + 6) % 7 // Monday = 0
+    x.setDate(x.getDate() - day)
+    return x.getTime()
+}
+/** Start (00:00, local) of the month containing d. */
+let startOfMonth = (d) => {
+    let x = new Date(d)
+    x.setHours(0, 0, 0, 0)
+    x.setDate(1)
+    return x.getTime()
+}
+/** True if timestamp `ms` falls in the named range relative to now. */
+let inDateRange = (ms, range) => {
+    if (range === "all") return true
+    if (ms == null) return false
+    let now = Date.now()
+    let sow = startOfWeek(now)
+    let som = startOfMonth(now)
+    let lastWeekStart = sow - 7 * 86400000
+    let lastMonthStart = startOfMonth(som - 1)
+    switch (range) {
+        case "thisWeek":
+            return ms >= sow
+        case "lastWeek":
+            return ms >= lastWeekStart && ms < sow
+        case "thisMonth":
+            return ms >= som
+        case "lastMonth":
+            return ms >= lastMonthStart && ms < som
+        case "older":
+            return ms < lastMonthStart
+        default:
+            return true
+    }
+}
+
 /** Download folder name: "{year}W{week} {sanitized class name}". */
 let downloadFolder = (className) => {
     let {year, week} = isoWeek()
@@ -1034,7 +1087,22 @@ let printerViewEnable = () => {
         let filterInput = document.createElement("input")
         filterInput.type = "search"
         filterInput.placeholder = "Filter by student / class / project…"
-        Object.assign(filterInput.style, {padding: "6px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", minWidth: "220px"})
+        Object.assign(filterInput.style, {padding: "6px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", minWidth: "200px"})
+        let dateSelect = document.createElement("select")
+        Object.assign(dateSelect.style, {padding: "6px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px"})
+        ;[
+            ["all", "Any date"],
+            ["thisWeek", "Modified: this week"],
+            ["lastWeek", "Modified: last week"],
+            ["thisMonth", "Modified: this month"],
+            ["lastMonth", "Modified: last month"],
+            ["older", "Modified: older"]
+        ].forEach(([v, t]) => {
+            let o = document.createElement("option")
+            o.value = v
+            o.textContent = t
+            dateSelect.appendChild(o)
+        })
         let selCount = document.createElement("span")
         Object.assign(selCount.style, {fontSize: "13px", color: "#666", marginLeft: "auto"})
 
@@ -1053,10 +1121,14 @@ let printerViewEnable = () => {
         let updateSelCount = () => {
             selCount.textContent = `${selected.size} selected`
         }
-        let filteredItems = () => {
+        let visibleItems = () => {
             let ft = filterInput.value.trim().toLowerCase()
-            if (!ft) return allItems
-            return allItems.filter((it) => `${it.student} ${it.className} ${it.name}`.toLowerCase().includes(ft))
+            let range = dateSelect.value
+            return allItems.filter((it) => {
+                if (!inDateRange(toMillis(it.mtime), range)) return false
+                if (ft && !`${it.student} ${it.className} ${it.name}`.toLowerCase().includes(ft)) return false
+                return true
+            })
         }
         let applySelStyle = (card, isSel) => {
             card.style.border = isSel ? "3px solid #16a34a" : "2px solid transparent"
@@ -1065,6 +1137,15 @@ let printerViewEnable = () => {
             if (selected.has(id)) selected.delete(id)
             else selected.add(id)
             applySelStyle(card, selected.has(id))
+            updateSelCount()
+        }
+        let setSelection = (items, on) => {
+            items.forEach((it) => {
+                if (on) selected.add(it.id)
+                else selected.delete(it.id)
+                let c = cardById.get(it.id)
+                if (c) applySelStyle(c, on)
+            })
             updateSelCount()
         }
         let makeCard = (it) => {
@@ -1091,16 +1172,28 @@ let printerViewEnable = () => {
             }
             let lbl = document.createElement("div")
             Object.assign(lbl.style, {padding: "6px 8px 0", fontSize: "13px", fontWeight: "600", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"})
-            lbl.textContent = it.student
+            lbl.textContent = it.student || "(unknown)"
             let sub = document.createElement("div")
             Object.assign(sub.style, {padding: "0 8px 6px", fontSize: "11px", color: "#64748b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"})
             sub.textContent = [it.className, it.name].filter(Boolean).join(" · ")
-            lbl.title = `${it.student} — ${it.name || ""}`
+            lbl.title = `${it.student || "?"} — ${it.name || ""}`
             card.appendChild(thumbWrap)
             card.appendChild(lbl)
             card.appendChild(sub)
             card.onclick = () => toggle(it.id, card)
             return card
+        }
+        let wrapRow = () => {
+            let r = document.createElement("div")
+            Object.assign(r.style, {display: "flex", flexWrap: "wrap", gap: "12px", alignContent: "flex-start"})
+            return r
+        }
+        let groupHeaderBtn = (text, onClick) => {
+            let b = document.createElement("button")
+            b.textContent = text
+            b.onclick = onClick
+            Object.assign(b.style, {padding: "2px 8px", fontSize: "12px", borderRadius: "5px", border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", color: "#1477d1"})
+            return b
         }
         let renderGrid = () => {
             grid.innerHTML = ""
@@ -1109,23 +1202,56 @@ let printerViewEnable = () => {
                 status.textContent = "No projects found."
                 return
             }
-            let items = filteredItems()
-            status.textContent = `${allItems.length} project${allItems.length === 1 ? "" : "s"}` +
-                (items.length !== allItems.length ? ` · ${items.length} shown` : "")
-            items.forEach((it) => {
-                let c = makeCard(it)
-                grid.appendChild(c)
-                cardById.set(it.id, c)
-            })
+            let items = visibleItems()
+            status.textContent = `${items.length} of ${allItems.length} shown`
+            if (!items.length) {
+                let none = document.createElement("div")
+                none.style.color = "#94a3b8"
+                none.textContent = "No projects match the current filters."
+                grid.appendChild(none)
+                return
+            }
+            if (groupByClass) {
+                let groups = new Map() // key -> {label, items}
+                items.forEach((it) => {
+                    let key = it.clazzId || it.className || "?"
+                    if (!groups.has(key)) groups.set(key, {label: it.className || "(unknown class)", items: []})
+                    groups.get(key).items.push(it)
+                })
+                groups.forEach((g) => {
+                    let section = document.createElement("div")
+                    let head = document.createElement("div")
+                    Object.assign(head.style, {display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px", borderBottom: "1px solid #e2e8f0", paddingBottom: "4px"})
+                    let h = document.createElement("strong")
+                    h.textContent = `${g.label} (${g.items.length})`
+                    h.style.fontSize = "14px"
+                    head.appendChild(h)
+                    head.appendChild(groupHeaderBtn("Select group", () => setSelection(g.items, true)))
+                    head.appendChild(groupHeaderBtn("Deselect", () => setSelection(g.items, false)))
+                    let row = wrapRow()
+                    g.items.forEach((it) => {
+                        let c = makeCard(it)
+                        row.appendChild(c)
+                        cardById.set(it.id, c)
+                    })
+                    section.appendChild(head)
+                    section.appendChild(row)
+                    grid.appendChild(section)
+                })
+            } else {
+                let row = wrapRow()
+                items.forEach((it) => {
+                    let c = makeCard(it)
+                    row.appendChild(c)
+                    cardById.set(it.id, c)
+                })
+                grid.appendChild(row)
+            }
         }
-        let selectAllShown = (on) => {
-            filteredItems().forEach((it) => {
-                if (on) selected.add(it.id)
-                else selected.delete(it.id)
-                let c = cardById.get(it.id)
-                if (c) applySelStyle(c, on)
-            })
+        let clearAll = () => {
+            selected.clear()
             updateSelCount()
+            renderGrid()
         }
         let bulk = (format) => {
             let chosen = allItems.filter((it) => selected.has(it.id))
@@ -1147,8 +1273,15 @@ let printerViewEnable = () => {
         }))
         header.appendChild(titleEl)
         header.appendChild(filterInput)
-        header.appendChild(bigButton("Select all", () => selectAllShown(true)))
-        header.appendChild(bigButton("Clear", () => selectAllShown(false)))
+        header.appendChild(dateSelect)
+        let groupBtn = bigButton("Group: on", () => {
+            groupByClass = !groupByClass
+            groupBtn.textContent = groupByClass ? "Group: on" : "Group: off"
+            renderGrid()
+        })
+        header.appendChild(groupBtn)
+        header.appendChild(bigButton("Select shown", () => setSelection(visibleItems(), true)))
+        header.appendChild(bigButton("Clear", () => clearAll()))
         header.appendChild(bigButton("Download STL", () => bulk("stl")))
         header.appendChild(bigButton("Download OBJ", () => bulk("obj")))
         let sizeBtns = []
@@ -1169,6 +1302,7 @@ let printerViewEnable = () => {
         sizeBtns[0].style.color = "#fff"
         header.appendChild(selCount)
         filterInput.addEventListener("input", () => renderGrid())
+        dateSelect.addEventListener("change", () => renderGrid())
         updateSelCount()
 
         // ── Load all classes, then render ───────────────────────────
@@ -1393,8 +1527,10 @@ let toGalleryItem = (project, clazz) => ({
     id: project.id,
     name: project.name,
     thumb: project.thumb || null,
-    student: (((clazz && clazz.students) || {})[project.author] || {}).name || null,
-    className: (clazz && clazz.name) || null
+    mtime: project.mtime || null,
+    student: (((clazz && clazz.students) || {})[project.author] || {}).name || project.author || null,
+    className: (clazz && clazz.name) || null,
+    clazzId: (clazz && clazz.id) || null
 })
 
 let getGalleryProjects = (onComplete) => {
