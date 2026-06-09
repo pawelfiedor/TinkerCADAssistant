@@ -109,8 +109,9 @@ chrome.downloads.onChanged.addListener((delta) => {
 })
 
 // Accept commands only from the extension's own tinkercad.com content script,
-// and only act on tinkercad.com URLs (downloads + tab opening).
+// and only act on tinkercad.com/S3 URLs (downloads + tab opening).
 const TC_HOST_RE = /^https:\/\/([a-z0-9-]+\.)*tinkercad\.com\//i
+const ALLOWED_EXPORT_RE = /^https:\/\/([a-z0-9-]+\.)*(tinkercad\.com|amazonaws\.com)\//i
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!msg || !msg.type) return false
@@ -123,6 +124,94 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const jobs = (msg.jobs || []).filter((j) => j && typeof j.url === 'string' && TC_HOST_RE.test(j.url))
         DL.enqueue(jobs, msg.batchId, sender.tab && sender.tab.id)
         sendResponse({ok: true, queued: jobs.length})
+        return false
+    }
+
+    if (msg.type === 'TC_FETCH_BATCH') {
+        const { batchId, jobs } = msg
+        const tabId = sender.tab && sender.tab.id
+        
+        let done = 0
+        let failed = 0
+        const results = []
+        
+        const maxConcurrent = 3
+        let index = 0
+        
+        const runNext = () => {
+            if (index >= jobs.length) {
+                if (done + failed === jobs.length) {
+                    chrome.tabs.sendMessage(tabId, {
+                        type: 'TC_EXPORT_DONE',
+                        batchId,
+                        files: results
+                    }, () => void chrome.runtime.lastError)
+                }
+                return
+            }
+            
+            const job = jobs[index++]
+            if (!ALLOWED_EXPORT_RE.test(job.url)) {
+                failed++
+                chrome.tabs.sendMessage(tabId, {
+                    type: 'TC_EXPORT_PROGRESS',
+                    batchId,
+                    done,
+                    failed,
+                    total: jobs.length
+                }, () => void chrome.runtime.lastError)
+                runNext()
+                return
+            }
+            
+            fetch(job.url)
+                .then(res => {
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+                    return res.arrayBuffer()
+                })
+                .then(buf => {
+                    const bytes = new Uint8Array(buf)
+                    let binary = ''
+                    const len = bytes.byteLength
+                    const chunk = 8192
+                    for (let i = 0; i < len; i += chunk) {
+                        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk))
+                    }
+                    const base64 = btoa(binary)
+                    results.push({ path: job.path, base64 })
+                    done++
+                    
+                    chrome.tabs.sendMessage(tabId, {
+                        type: 'TC_EXPORT_PROGRESS',
+                        batchId,
+                        done,
+                        failed,
+                        total: jobs.length
+                    }, () => void chrome.runtime.lastError)
+                    
+                    runNext()
+                })
+                .catch(err => {
+                    console.warn(`[TCA SW] Failed to fetch for export: ${job.url}`, err)
+                    failed++
+                    
+                    chrome.tabs.sendMessage(tabId, {
+                        type: 'TC_EXPORT_PROGRESS',
+                        batchId,
+                        done,
+                        failed,
+                        total: jobs.length
+                    }, () => void chrome.runtime.lastError)
+                    
+                    runNext()
+                })
+        }
+        
+        for (let c = 0; c < Math.min(maxConcurrent, jobs.length); c++) {
+            runNext()
+        }
+        
+        sendResponse({ ok: true })
         return false
     }
 

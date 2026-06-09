@@ -134,6 +134,750 @@ let designThumbUrl = (d) => (d && d.thumbnail_json && (
     (d.thumbnail_json.detailThumb && d.thumbnail_json.detailThumb.url) ||
     (d.thumbnail_json.filmstrip && d.thumbnail_json.filmstrip.url))) || (d && d.thumb) || null
 
+/** Active refresh of expired thumbnail S3 URL. */
+let refreshThumbnail = (projectId, clazzId, imgEl, fallbackFn) => {
+    if (!projectId || imgEl.dataset.tcaRefreshed === "1") {
+        if (fallbackFn) fallbackFn()
+        return
+    }
+    imgEl.dataset.tcaRefreshed = "1"
+    tcApi.design(projectId).then((d) => {
+        let freshUrl = designThumbUrl(d)
+        if (freshUrl) {
+            imgEl.src = freshUrl
+            if (clazzId) {
+                modify(clazzId, (clazz) => {
+                    for (let act of Object.values((clazz && clazz.activities) || {})) {
+                        if (act.projects && act.projects[projectId]) {
+                            act.projects[projectId].thumb = freshUrl
+                            break
+                        }
+                    }
+                })
+            }
+        } else {
+            if (fallbackFn) fallbackFn()
+        }
+    }).catch(() => {
+        if (fallbackFn) fallbackFn()
+    })
+}
+
+let escapeHtml = (str) => {
+    if (!str) return ""
+    return str
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;")
+}
+
+class SimpleZipWriter {
+    constructor() {
+        this.files = []
+    }
+
+    addFile(name, data) {
+        this.files.push({ name, data })
+    }
+
+    generate() {
+        const crc32Table = new Int32Array(256)
+        for (let i = 0; i < 256; i++) {
+            let c = i
+            for (let j = 0; j < 8; j++) {
+                c = ((c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1))
+            }
+            crc32Table[i] = c
+        }
+
+        const getCrc32 = (buf) => {
+            let crc = -1
+            for (let i = 0; i < buf.length; i++) {
+                crc = (crc >>> 8) ^ crc32Table[(crc ^ buf[i]) & 0xFF]
+            }
+            return (crc ^ -1) >>> 0
+        }
+
+        const getDosDateTime = (date) => {
+            const y = date.getFullYear()
+            const m = date.getMonth() + 1
+            const d = date.getDate()
+            const h = date.getHours()
+            const min = date.getMinutes()
+            const s = date.getSeconds()
+            const dosTime = (h << 11) | (min << 5) | (s >> 1)
+            const dosDate = ((y - 1980) << 9) | (m << 5) | d
+            return { dosTime, dosDate }
+        }
+
+        const { dosTime, dosDate } = getDosDateTime(new Date())
+        const textEncoder = new TextEncoder()
+        const getBytes = (str) => textEncoder.encode(str)
+
+        let localHeadersSize = 0
+        let centralDirectorySize = 0
+
+        this.files.forEach(f => {
+            const nameBytes = getBytes(f.name)
+            f.nameBytes = nameBytes
+            f.crc = getCrc32(f.data)
+            f.localHeaderOffset = localHeadersSize
+
+            localHeadersSize += 30 + nameBytes.length + f.data.length
+            centralDirectorySize += 46 + nameBytes.length
+        })
+
+        const totalSize = localHeadersSize + centralDirectorySize + 22
+        const out = new Uint8Array(totalSize)
+        let pos = 0
+
+        const writeUint16 = (val) => {
+            out[pos++] = val & 0xFF
+            out[pos++] = (val >> 8) & 0xFF
+        }
+
+        const writeUint32 = (val) => {
+            out[pos++] = val & 0xFF
+            out[pos++] = (val >> 8) & 0xFF
+            out[pos++] = (val >> 16) & 0xFF
+            out[pos++] = (val >> 24) & 0xFF
+        }
+
+        const writeBytes = (bytes) => {
+            out.set(bytes, pos)
+            pos += bytes.length
+        }
+
+        this.files.forEach(f => {
+            writeUint32(0x04034b50)
+            writeUint16(10)
+            writeUint16(0)
+            writeUint16(0)
+            writeUint16(dosTime)
+            writeUint16(dosDate)
+            writeUint32(f.crc)
+            writeUint32(f.data.length)
+            writeUint32(f.data.length)
+            writeUint16(f.nameBytes.length)
+            writeUint16(0)
+            writeBytes(f.nameBytes)
+            writeBytes(f.data)
+        })
+
+        const centralDirectoryOffset = pos
+
+        this.files.forEach(f => {
+            writeUint32(0x02014b50)
+            writeUint16(20)
+            writeUint16(10)
+            writeUint16(0)
+            writeUint16(0)
+            writeUint16(dosTime)
+            writeUint16(dosDate)
+            writeUint32(f.crc)
+            writeUint32(f.data.length)
+            writeUint32(f.data.length)
+            writeUint16(f.nameBytes.length)
+            writeUint16(0)
+            writeUint16(0)
+            writeUint16(0)
+            writeUint16(0)
+            writeUint32(0)
+            writeUint32(f.localHeaderOffset)
+            writeBytes(f.nameBytes)
+        })
+
+        writeUint32(0x06054b50)
+        writeUint16(0)
+        writeUint16(0)
+        writeUint16(this.files.length)
+        writeUint16(this.files.length)
+        writeUint32(centralDirectorySize)
+        writeUint32(centralDirectoryOffset)
+        writeUint16(0)
+
+        return out
+    }
+}
+
+let generateOfflineIndexHtml = (className, projects) => {
+    let studentMap = new Map()
+    projects.forEach(p => {
+        let name = p.student || "(unknown)"
+        if (!studentMap.has(name)) studentMap.set(name, [])
+        studentMap.get(name).push(p)
+    })
+
+    let sectionsHtml = ""
+    studentMap.forEach((items, student) => {
+        let cards = items.map(it => {
+            let imgHtml = it.thumbFilename ? `<img src="./${encodeURIComponent(it.thumbFilename)}" alt="${escapeHtml(it.name)}">` : `<div class="fallback-img">🧊</div>`
+            let stlLink = it.stlFilename ? `<a class="btn" href="./${encodeURIComponent(it.stlFilename)}" download>Download STL</a>` : ""
+            return `
+            <div class="card">
+                <div class="thumb-wrap">
+                    ${imgHtml}
+                </div>
+                <div class="info">
+                    <h3 class="proj-name">${escapeHtml(it.name)}</h3>
+                    <div class="actions">
+                        ${stlLink}
+                        <a class="btn secondary" href="https://www.tinkercad.com/things/${it.id}" target="_blank">View on TinkerCAD ↗</a>
+                    </div>
+                </div>
+            </div>
+            `
+        }).join("")
+
+        sectionsHtml += `
+        <section class="student-section">
+            <h2 class="student-header">${escapeHtml(student)} (${items.length})</h2>
+            <div class="grid">
+                ${cards}
+            </div>
+        </section>
+        `
+    })
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>${escapeHtml(className)} - Classroom Portfolio</title>
+    <style>
+        body {
+            font-family: 'Open Sans', Helvetica, Arial, sans-serif;
+            color: #1e293b;
+            background: #f8fafc;
+            margin: 0;
+            padding: 30px;
+        }
+        header {
+            max-width: 1200px;
+            margin: 0 auto 30px auto;
+            background: #fff;
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        h1 {
+            margin: 0;
+            font-size: 26px;
+            color: #0f172a;
+        }
+        .meta {
+            font-size: 14px;
+            color: #64748b;
+            text-align: right;
+        }
+        .student-section {
+            max-width: 1200px;
+            margin: 0 auto 40px auto;
+        }
+        .student-header {
+            font-size: 18px;
+            font-weight: 700;
+            color: #4076c7;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 8px;
+            margin-bottom: 16px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 20px;
+        }
+        .card {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+        .thumb-wrap {
+            height: 180px;
+            background: #f1f5f9;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .thumb-wrap img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .fallback-img {
+            font-size: 48px;
+        }
+        .info {
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+            justify-content: space-between;
+        }
+        .proj-name {
+            margin: 0 0 12px 0;
+            font-size: 15px;
+            font-weight: 600;
+            color: #0f172a;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .actions {
+            display: flex;
+            gap: 8px;
+        }
+        .btn {
+            flex: 1;
+            text-align: center;
+            padding: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            border-radius: 6px;
+            text-decoration: none;
+            background: #4076c7;
+            color: #fff;
+            transition: background 0.15s;
+        }
+        .btn:hover {
+            background: #325e9f;
+        }
+        .btn.secondary {
+            background: #f1f5f9;
+            color: #475569;
+            border: 1px solid #e2e8f0;
+        }
+        .btn.secondary:hover {
+            background: #e2e8f0;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div>
+            <h1>Classroom Portfolio Showcase</h1>
+            <div style="font-size: 14px; color: #475569; margin-top: 4px;">Class: ${escapeHtml(className)}</div>
+        </div>
+        <div class="meta">
+            <div>Date Generated: ${new Date().toLocaleDateString()}</div>
+            <div>Generated by TinkerCAD Assistant</div>
+        </div>
+    </header>
+    ${sectionsHtml}
+</body>
+</html>
+`
+}
+
+}
+
+let exportPortfolioZip = (clazzID, activityID) => {
+    let toast = createDownloadToast(1)
+    toast.update({ done: 0, failed: 0, total: 1 })
+    
+    sasAllDataForClassActivity(clazzID, activityID, () => {
+        get(clazzID, (fresh) => {
+            let activity = fresh && fresh.activities && fresh.activities[activityID]
+            let projects = (activity && activity.projects) || {}
+            let className = (fresh && fresh.name) || "TinkerCAD"
+            
+            let jobs = []
+            let projectsList = []
+            
+            for (let project of Object.values(projects)) {
+                let student = fresh.students ? fresh.students[project.author] : null
+                let username = sanitizeName(student ? student.name : project.author) || "Unknown"
+                let cleanProjName = sanitizeName(project.name) || "Untitled"
+                
+                let folderName = `${username}`
+                let stlFilename = `${folderName}/${cleanProjName}.stl`
+                let thumbFilename = project.thumb ? `${folderName}/${cleanProjName}.png` : null
+                
+                jobs.push({
+                    url: designDownloadUrl(project.id, "stl"),
+                    path: stlFilename
+                })
+                
+                if (project.thumb) {
+                    jobs.push({
+                        url: project.thumb,
+                        path: thumbFilename
+                    })
+                }
+                
+                projectsList.push({
+                    id: project.id,
+                    name: project.name,
+                    student: student ? student.name : project.author,
+                    stlFilename,
+                    thumbFilename
+                })
+            }
+            
+            if (jobs.length === 0) {
+                alert("No projects to export")
+                return
+            }
+            
+            let batchId = `zip_${Date.now()}`
+            
+            let progressListener = (msg) => {
+                if (msg.batchId !== batchId) return
+                if (msg.type === 'TC_EXPORT_PROGRESS') {
+                    toast.update({ done: msg.done, failed: msg.failed, total: msg.total })
+                }
+                if (msg.type === 'TC_EXPORT_DONE') {
+                    chrome.runtime.onMessage.removeListener(progressListener)
+                    toast.update({ done: msg.files.length, failed: jobs.length - msg.files.length, total: jobs.length })
+                    
+                    let zip = new SimpleZipWriter()
+                    
+                    msg.files.forEach(f => {
+                        let binStr = atob(f.base64)
+                        let len = binStr.length
+                        let bytes = new Uint8Array(len)
+                        for (let i = 0; i < len; i++) {
+                            bytes[i] = binStr.charCodeAt(i)
+                        }
+                        zip.addFile(f.path, bytes)
+                    })
+                    
+                    let indexHtml = generateOfflineIndexHtml(className, projectsList)
+                    let indexBytes = new TextEncoder().encode(indexHtml)
+                    zip.addFile("index.html", indexBytes)
+                    
+                    let zipData = zip.generate()
+                    let blob = new Blob([zipData], { type: "application/zip" })
+                    let blobUrl = URL.createObjectURL(blob)
+                    
+                    let a = document.createElement("a")
+                    a.href = blobUrl
+                    a.download = `${sanitizeName(className)}_Showcase.zip`
+                    document.body.appendChild(a)
+                    a.click()
+                    document.body.removeChild(a)
+                    
+                    setTimeout(() => URL.revokeObjectURL(blobUrl), 10000)
+                    
+                    toast.finish({ done: msg.files.length, failed: jobs.length - msg.files.length, total: jobs.length })
+                }
+            }
+            
+            chrome.runtime.onMessage.addListener(progressListener)
+            
+            chrome.runtime.sendMessage({
+                type: 'TC_FETCH_BATCH',
+                batchId,
+                jobs
+            })
+        })
+    }, true)
+}
+
+let analyticsViewEnable = () => {
+    let prevPage = currentPage
+    return enableView("analytics", (container) => {
+        currentPage = Context.GENERAL
+        
+        let header = document.createElement("div")
+        Object.assign(header.style, {
+            display: "flex", alignItems: "center", gap: "12px", flex: "0 0 auto",
+            padding: "12px 18px", boxSizing: "border-box", borderBottom: "1px solid #cbd5e1",
+            fontFamily: "Open Sans, Helvetica, Arial, sans-serif"
+        })
+        
+        let titleEl = document.createElement("strong")
+        titleEl.textContent = "Classroom Analytics"
+        titleEl.style.fontSize = "18px"
+        titleEl.style.color = "#0f172a"
+        
+        let mainContent = document.createElement("div")
+        Object.assign(mainContent.style, {
+            flex: "1", minHeight: "0", overflowY: "auto", padding: "24px",
+            background: "#f8fafc", boxSizing: "border-box", fontFamily: "Open Sans, Helvetica, Arial, sans-serif"
+        })
+        
+        container.appendChild(header)
+        container.appendChild(mainContent)
+        
+        header.appendChild(bigButton("Back", () => {
+            currentPage = prevPage
+            disableView("analytics")
+        }))
+        header.appendChild(titleEl)
+        
+        let exportBtn = bigButton("Copy TSV for Excel", () => {})
+        header.appendChild(exportBtn)
+        
+        mainContent.textContent = "Loading analytics data..."
+        
+        getCurrentClazz((clazz) => {
+            if (!clazz) {
+                mainContent.textContent = "Error loading classroom data."
+                return
+            }
+            mainContent.innerHTML = ""
+            
+            let students = clazz.students || {}
+            let activities = clazz.activities || {}
+            
+            let studentProjects = new Map()
+            Object.values(students).forEach(s => {
+                studentProjects.set(s.id, { student: s, projects: [] })
+            })
+            
+            let allProjects = []
+            for (let act of Object.values(activities)) {
+                for (let proj of Object.values(act.projects || {})) {
+                    allProjects.push(proj)
+                    let author = proj.author
+                    if (!studentProjects.has(author)) {
+                        studentProjects.set(author, { student: { id: author, name: author }, projects: [] })
+                    }
+                    studentProjects.get(author).projects.push(proj)
+                }
+            }
+            
+            let now = Date.now()
+            let oneWeek = 7 * 86400000
+            let oneMonth = 30 * 86400000
+            
+            let activeCount = 0
+            let idleCount = 0
+            let inactiveCount = 0
+            let totalProjects = allProjects.length
+            
+            let rowsData = []
+            
+            studentProjects.forEach((data, id) => {
+                let s = data.student
+                let projs = data.projects
+                
+                let lastMtime = 0
+                projs.forEach(p => {
+                    let mt = toMillis(p.mtime)
+                    if (mt && mt > lastMtime) lastMtime = mt
+                })
+                
+                let status = "Inactive"
+                let badgeColor = "#ef4444"
+                let badgeBg = "#fee2e2"
+                
+                if (lastMtime > 0) {
+                    let diff = now - lastMtime
+                    if (diff < oneWeek) {
+                        status = "Active"
+                        badgeColor = "#16a34a"
+                        badgeBg = "#dcfce7"
+                        activeCount++
+                    } else if (diff < oneMonth) {
+                        status = "Idle"
+                        badgeColor = "#d97706"
+                        badgeBg = "#fef3c7"
+                        idleCount++
+                    } else {
+                        inactiveCount++
+                    }
+                } else {
+                    inactiveCount++
+                }
+                
+                rowsData.push({
+                    name: s.name || s.username || id,
+                    count: projs.length,
+                    lastActive: lastMtime ? new Date(lastMtime).toLocaleString("pl-PL") : "Never",
+                    lastMtime,
+                    status,
+                    badgeColor,
+                    badgeBg
+                })
+            })
+            
+            rowsData.sort((a, b) => a.name.localeCompare(b.name))
+            
+            let summaryContainer = document.createElement("div")
+            Object.assign(summaryContainer.style, {
+                display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "20px", marginBottom: "30px"
+            })
+            
+            let makeCard = (title, val, desc, color) => {
+                let card = document.createElement("div")
+                Object.assign(card.style, {
+                    background: "#fff", padding: "20px", borderRadius: "12px",
+                    boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)",
+                    borderLeft: `5px solid ${color}`
+                })
+                let t = document.createElement("div")
+                t.textContent = title
+                t.style.fontSize = "13px"
+                t.style.color = "#64748b"
+                t.style.fontWeight = "600"
+                t.style.textTransform = "uppercase"
+                let v = document.createElement("div")
+                v.textContent = val
+                v.style.fontSize = "28px"
+                v.style.fontWeight = "700"
+                v.style.color = "#0f172a"
+                v.style.margin = "8px 0"
+                let d = document.createElement("div")
+                d.textContent = desc
+                d.style.fontSize = "12px"
+                d.style.color = "#94a3b8"
+                card.appendChild(t)
+                card.appendChild(v)
+                card.appendChild(d)
+                return card
+            }
+            
+            summaryContainer.appendChild(makeCard("Total Projects", totalProjects, "Designs created in this classroom", "#4076c7"))
+            summaryContainer.appendChild(makeCard("Active Students", activeCount, "Modified project in the last 7 days", "#16a34a"))
+            summaryContainer.appendChild(makeCard("Idle Students", idleCount, "Modified project in the last 30 days", "#d97706"))
+            summaryContainer.appendChild(makeCard("Inactive Students", inactiveCount, "No recent modifications", "#ef4444"))
+            
+            mainContent.appendChild(summaryContainer)
+            
+            let timelineCard = document.createElement("div")
+            Object.assign(timelineCard.style, {
+                background: "#fff", padding: "20px", borderRadius: "12px",
+                boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)", marginBottom: "30px"
+            })
+            let timelineTitle = document.createElement("h3")
+            timelineTitle.textContent = "Recent Classroom Activity (Past 14 Days)"
+            timelineTitle.style.margin = "0 0 16px 0"
+            timelineTitle.style.fontSize = "15px"
+            timelineTitle.style.color = "#1f2937"
+            timelineCard.appendChild(timelineTitle)
+            
+            let dayCounts = new Array(14).fill(0)
+            let dayLabels = []
+            for (let d = 13; d >= 0; d--) {
+                let targetDate = new Date(now - d * 86400000)
+                dayLabels.push(targetDate.toLocaleDateString("pl-PL", { day: 'numeric', month: 'short' }))
+                
+                let startOfDay = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate()).getTime()
+                let endOfDay = startOfDay + 86400000
+                
+                allProjects.forEach(p => {
+                    let mt = toMillis(p.mtime)
+                    if (mt && mt >= startOfDay && mt < endOfDay) {
+                        dayCounts[13 - d]++
+                    }
+                })
+            }
+            
+            let maxCount = Math.max(...dayCounts, 1)
+            let chartContainer = document.createElement("div")
+            Object.assign(chartContainer.style, {
+                display: "flex", justifyContent: "space-between", alignItems: "flex-end",
+                height: "120px", gap: "10px", padding: "10px 0 0 0"
+            })
+            
+            for (let i = 0; i < 14; i++) {
+                let col = document.createElement("div")
+                Object.assign(col.style, {
+                    flex: "1", display: "flex", flexDirection: "column", alignItems: "center", gap: "4px"
+                })
+                
+                let bar = document.createElement("div")
+                let heightPct = Math.round((dayCounts[i] / maxCount) * 100)
+                Object.assign(bar.style, {
+                    width: "100%", height: `${heightPct}%`, background: "#4076c7",
+                    borderRadius: "4px 4px 0 0", minHeight: dayCounts[i] > 0 ? "4px" : "0px",
+                    transition: "height 0.3s ease", position: "relative"
+                })
+                bar.title = `${dayCounts[i]} modifications`
+                
+                let barVal = document.createElement("span")
+                barVal.textContent = dayCounts[i] > 0 ? dayCounts[i] : ""
+                barVal.style.fontSize = "10px"
+                barVal.style.color = "#64748b"
+                barVal.style.fontWeight = "600"
+                
+                let label = document.createElement("span")
+                label.textContent = dayLabels[i]
+                label.style.fontSize = "9px"
+                label.style.color = "#94a3b8"
+                label.style.whiteSpace = "nowrap"
+                
+                col.appendChild(barVal)
+                col.appendChild(bar)
+                col.appendChild(label)
+                chartContainer.appendChild(col)
+            }
+            timelineCard.appendChild(chartContainer)
+            mainContent.appendChild(timelineCard)
+            
+            let tableCard = document.createElement("div")
+            Object.assign(tableCard.style, {
+                background: "#fff", borderRadius: "12px", overflow: "hidden",
+                boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)"
+            })
+            
+            let table = document.createElement("table")
+            Object.assign(table.style, {
+                width: "100%", borderCollapse: "collapse", fontSize: "14px", textAlign: "left"
+            })
+            
+            let thead = document.createElement("thead")
+            thead.innerHTML = `
+                <tr style="background: #f1f5f9; color: #475569; font-weight: 600; border-bottom: 1px solid #e2e8f0;">
+                    <th style="padding: 12px 18px;">Student</th>
+                    <th style="padding: 12px 18px; text-align: center;">Total Projects</th>
+                    <th style="padding: 12px 18px;">Last Activity</th>
+                    <th style="padding: 12px 18px;">Engagement Status</th>
+                </tr>
+            `
+            table.appendChild(thead)
+            
+            let tbody = document.createElement("tbody")
+            rowsData.forEach(row => {
+                let tr = document.createElement("tr")
+                tr.style.borderBottom = "1px solid #f1f5f9"
+                tr.innerHTML = `
+                    <td style="padding: 12px 18px; font-weight: 600; color: #1e293b;">${escapeHtml(row.name)}</td>
+                    <td style="padding: 12px 18px; text-align: center; color: #334155;">${row.count}</td>
+                    <td style="padding: 12px 18px; color: #475569;">${row.lastActive}</td>
+                    <td style="padding: 12px 18px;">
+                        <span style="background: ${row.badgeBg}; color: ${row.badgeColor}; padding: 4px 10px; border-radius: 9999px; font-size: 11px; font-weight: 600; text-transform: uppercase;">
+                            ${row.status}
+                        </span>
+                    </td>
+                `
+                tbody.appendChild(tr)
+            })
+            table.appendChild(tbody)
+            tableCard.appendChild(table)
+            mainContent.appendChild(tableCard)
+            
+            exportBtn.onclick = () => {
+                let tsv = "Student\tTotal Projects\tLast Activity\tEngagement Status\n"
+                rowsData.forEach(row => {
+                    tsv += `${row.name}\t${row.count}\t${row.lastActive}\t${row.status}\n`
+                })
+                fallbackCopy(tsv)
+                showNotice("Analytics copied to clipboard!", "ok")
+            }
+        })
+    }, () => {})
+}
+
 /** Floating, bottom-right container that stacks per-batch download toasts. */
 let downloadToastContainer = null
 let ensureToastContainer = () => {
@@ -1175,8 +1919,10 @@ let printerViewEnable = () => {
                 im.src = it.thumb
                 im.alt = ""
                 im.onerror = () => {
-                    im.style.display = "none"
-                    thumbWrap.textContent = "🧊"
+                    refreshThumbnail(it.id, it.clazzId, im, () => {
+                        im.style.display = "none"
+                        thumbWrap.textContent = "🧊"
+                    })
                 }
                 thumbWrap.appendChild(im)
             } else {
@@ -1282,15 +2028,6 @@ let printerViewEnable = () => {
             downloadBatch(jobs)
         }
 
-        let escapeHtml = (str) => {
-            if (!str) return ""
-            return str
-                .replaceAll("&", "&amp;")
-                .replaceAll("<", "&lt;")
-                .replaceAll(">", "&gt;")
-                .replaceAll('"', "&quot;")
-                .replaceAll("'", "&#039;")
-        }
         let formatDate = (mtime) => {
             if (!mtime) return "N/A"
             try {
@@ -1849,9 +2586,18 @@ let galleryViewEnable = (projects = null) => {
         let img = document.createElement("img")
         Object.assign(img.style, {maxWidth: "100%", maxHeight: "100%", objectFit: "contain"})
         img.onerror = () => {
-            img.style.display = "none"
-            empty.style.display = "block"
-            empty.innerText = "No thumbnail — use the 3D button"
+            let p = list[i]
+            if (p) {
+                refreshThumbnail(p.id, p.clazzId, img, () => {
+                    img.style.display = "none"
+                    empty.style.display = "block"
+                    empty.innerText = "No thumbnail — use the 3D button"
+                })
+            } else {
+                img.style.display = "none"
+                empty.style.display = "block"
+                empty.innerText = "No thumbnail — use the 3D button"
+            }
         }
         let frame = document.createElement("iframe")
         Object.assign(frame.style, {width: "100%", height: "100%", border: "none", display: "none"})
@@ -2152,8 +2898,10 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
                     im.src = it.thumb
                     im.alt = ""
                     im.onerror = () => {
-                        im.style.display = "none"
-                        thumbWrap.textContent = "🧊"
+                        refreshThumbnail(it.id, clazzID, im, () => {
+                            im.style.display = "none"
+                            thumbWrap.textContent = "🧊"
+                        })
                     }
                     thumbWrap.appendChild(im)
                 } else {
@@ -2532,10 +3280,15 @@ let main = () => {
 
 
         })
+        let elemAnalytics = bigButton("Analytics", () => {
+            analyticsViewEnable()
+        })
         let header = document.querySelector(".class-projects-list-toolbar")
         header.style.display = "flex"
         elem.style.marginLeft = "5px"
+        elemAnalytics.style.marginLeft = "5px"
         header.appendChild(elem)
+        header.appendChild(elemAnalytics)
 
 
     }, 500, Context.ACTIVITIES)
@@ -2585,6 +3338,9 @@ let main = () => {
                 elem.appendChild(lazyDownloadAllButton("stl", lazyAction))
                 elem.appendChild(lazyDownloadAllButton("obj", lazyAction))
                 elem.appendChild(lazyDownloadAllThumbnailsButton(lazyAction))
+                elem.appendChild(bigButton("Export Portfolio ZIP", () => {
+                    exportPortfolioZip(clazzID, activityID)
+                }))
             })
 
 
