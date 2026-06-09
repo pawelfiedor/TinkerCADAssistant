@@ -637,8 +637,8 @@ let getCurrentURL = (onComplete) => {
 }
 let activityRegex = /^https:\/\/www\.tinkercad\.com\/classrooms\/.+\/activities\/.+$/gm
 let tinkerCADURL = /^https:\/\/www\.tinkercad\.com.*$/gm
-let classesRegex = /^https:\/\/www\.tinkercad\.com\/dashboard\/classes$/gm
-let activitiesRegex = /^https:\/\/www\.tinkercad\.com\/classrooms\/.+\/activities$/gm
+let classesRegex = /^https:\/\/www\.tinkercad\.com\/dashboard\/classes(\?.*)?$/gm
+let activitiesRegex = /^https:\/\/www\.tinkercad\.com\/classrooms\/.+\/activities(\?.*)?$/gm
 
 
 /**
