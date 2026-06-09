@@ -476,12 +476,13 @@ let currentPage = Context.GENERAL
  * @param onComplete The function to run once condition is met.
  * @param delay Delay in MS to wait before checking again.
  * */
-let awaitResult = (condition, onComplete, delay = 1000) => {
+let awaitResult = (condition, onComplete, delay = 1000, isCancelled = () => false) => {
 
     setTimeout(() => {
+        if (isCancelled()) return
         let state = condition()
         if (!state) {
-            return awaitResult(condition, onComplete, delay)
+            return awaitResult(condition, onComplete, delay, isCancelled)
         }
 
         return onComplete()
@@ -999,85 +1000,86 @@ let printerViewEnable = () => enableView("printer", (container) => {
 
 
 })
-let galleryViewEnable = (projects = null) => enableView("gallery", (container) => {
-    currentPage = Context.GALLERY
-    if (!projects)
-        updateStorage()
+let galleryViewEnable = (projects = null) => {
+    let prevPage = currentPage
+    return enableView("gallery", (container) => {
+        currentPage = Context.GALLERY
+        let active = true
+        if (!projects)
+            updateStorage()
 
-    let frame = document.createElement("iframe")
-    let h1 = document.createElement("h2")
-    h1.style.height = "5vh"
-    h1.style.width = "100vw"
-    h1.style.dir = "auto"
+        let frame = document.createElement("iframe")
+        let h1 = document.createElement("h2")
+        h1.style.height = "5vh"
+        h1.style.width = "100vw"
+        h1.style.dir = "auto"
 
+        container.appendChild(h1)
+        container.appendChild(frame)
 
-    container.appendChild(h1)
+        let setFrame = (id, name) => {
+            frame.src = `https://www.tinkercad.com/things/${id}/edit`
+            if (contains_heb(name)) {
+                h1.style.textAlign = "right"
+            } else h1.style.textAlign = "left"
+            h1.innerText = name
+            awaitResult(() => {
+                let doc = frame.contentDocument
+                if (active && currentPage === Context.GALLERY && doc) {
+                    return doc.querySelector("#viewcube-home-button")
+                }
+                return false
+            }, () => {
+                let doc = frame.contentDocument
+                doc.querySelector("#sidebarContainer")?.remove()
+                doc.querySelector(".editor__tab__subnav")?.remove()
+                doc.querySelector(".editor__topnav")?.remove()
+                doc.querySelector(".hud")?.remove()
+                let canvas = doc.querySelector("canvas")
+                if (canvas) canvas.style.width = "100vw"
+                frame.style.height = "95vh"
+            }, 300, () => !active)
+        }
+        frame.style.width = "100vw"
+        frame.style.height = "95vh"
+        let i = 1
 
-    container.appendChild(frame)
+        let loop = (list) => {
+            chrome.storage.local.get(["speed"], (data) => {
+                let speed = (data && data.speed != null) ? 6 - Number(data.speed) : 3
+                setTimeout(() => {
+                    if (!active || currentPage !== Context.GALLERY) return
+                    if (list.length <= i) i = 0
+                    setFrame(list[i].id, list[i].name)
+                    i++
+                    loop(list)
+                }, speed * 10000)
+            })
+        }
 
-
-    let setFrame = (id, name) => {
-
-        frame.src = `https://www.tinkercad.com/things/${id}/edit`
-        if (contains_heb(name)) {
-            h1.style.textAlign = "right"
-        } else h1.style.textAlign = "left"
-        h1.innerText = name
-        awaitResult(() => {
-            let document = frame.contentDocument
-            if (currentPage === Context.GALLERY && document) {
-                return document.querySelector("#viewcube-home-button")
+        let start = (list) => {
+            if (!list || list.length === 0) {
+                h1.innerText = "No projects to show"
+                return
             }
-            return false
-        }, () => {
-            frame.contentDocument.querySelector("#sidebarContainer").remove()
-            frame.contentDocument.querySelector(".editor__tab__subnav").remove()
-            frame.contentDocument.querySelector(".editor__topnav").remove()
-            frame.contentDocument.querySelector(".hud").remove()
-            let canvas = frame.contentDocument.querySelector("canvas")
-            canvas.style.width = "100vw"
-            frame.style.height = "95vh"
-        }, 300)
-    }
-    frame.style.width = "100vw"
-    frame.style.height = "95vh"
-    let i = 1
+            setFrame(list[0].id, list[0].name)
+            loop(list)
+        }
 
-    let loop = (projects) => {
-        chrome.storage.local.get(["speed"], (data) => {
-            let speed = (data && data.speed != null) ? 6 - Number(data.speed) : 3
-            setTimeout(() => {
-                if (currentPage !== Context.GALLERY) return
+        if (projects) {
+            start(projects)
+        } else {
+            getGalleryProjects((list) => start(list))
+        }
 
-                if (projects.length <= i) i = 0
-
-                setFrame(projects[i].id, projects[i].name)
-                i++
-
-                loop(projects)
-
-            }, speed * 10000)
-        })
-    }
-
-    if (projects) {
-        setFrame(projects[0].id, projects[0].name)
-        loop(projects)
-    } else {
-        getGalleryProjects((projects) => {
-            setFrame(projects[0].id, projects[0].name)
-            loop(projects)
-        })
-    }
-    container.appendChild(bigButton("Back", () => {
-        disableView("gallery")
-    }))
-
-
-}, () => {
-
-
-})
+        container.appendChild(bigButton("Back", () => {
+            active = false
+            currentPage = prevPage
+            disableView("gallery")
+        }))
+    }, () => {
+    })
+}
 let getGalleryProjects = (onComplete) => {
     let projects = []
     let i = 0
@@ -1162,7 +1164,7 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
 
     getCurrentActivityAndClassID((clazzID, activityID) => {
         get(clazzID, (clazz) => {
-
+            clazz = clazz || {}
 
             let first = true
             if (clazz.activities)
@@ -1188,8 +1190,8 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
 
 
                     let getProjects = () => {
-                        if (!clazz.activities[activityID]) return []
-                        return clazz.activities[activityID].projects
+                        if (!clazz.activities || !clazz.activities[activityID]) return {}
+                        return clazz.activities[activityID].projects || {}
                     }
                     let projectIDS = () => {
                         let ids = []
