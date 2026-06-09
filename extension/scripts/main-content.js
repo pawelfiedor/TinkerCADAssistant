@@ -2227,7 +2227,12 @@ let main = () => {
         let elem = smallButton2("Gallery", () => {
             galleryViewEnable()
         })
-        container.querySelector("#newClassButton").insertAdjacentElement('afterend', elem)
+        let target = container.querySelector("#newClassButton")
+        if (target) {
+            target.insertAdjacentElement('afterend', elem)
+        } else {
+            container.appendChild(elem)
+        }
 
     }, 500, Context.CLASSES)
 
@@ -2235,7 +2240,12 @@ let main = () => {
         let elem = smallButton2("Print Manager", () => {
             printerViewEnable()
         })
-        container.querySelector("#newClassButton").insertAdjacentElement('afterend', elem)
+        let target = container.querySelector("#newClassButton")
+        if (target) {
+            target.insertAdjacentElement('afterend', elem)
+        } else {
+            container.appendChild(elem)
+        }
 
     }, 500, Context.CLASSES)
 
