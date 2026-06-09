@@ -73,6 +73,11 @@ let downloadFileBase = (username, projectName) => sanitizeName(`${username || ''
 /** CSG STL/SVG download URL for a design. */
 let designDownloadUrl = (designId, format) => `https://csg-prd.tinkercad.com/things/${designId}/polysoup.${format}?rev=-1`
 
+/** Best thumbnail URL from a design object or stored project (detail > filmstrip). */
+let designThumbUrl = (d) => (d && d.thumbnail_json && (
+    (d.thumbnail_json.detailThumb && d.thumbnail_json.detailThumb.url) ||
+    (d.thumbnail_json.filmstrip && d.thumbnail_json.filmstrip.url))) || (d && d.thumb) || null
+
 /** Floating, bottom-right container that stacks per-batch download toasts. */
 let downloadToastContainer = null
 let ensureToastContainer = () => {
@@ -186,7 +191,7 @@ let resolveDownloadTarget = (id, name, onReady) => {
     if (!activityMatch) {
         let classMatch = /\/classrooms\/(\w+)/.exec(window.location.href)
         if (!classMatch) {
-            onReady(downloadFolder("TinkerCAD"), sanitizeName(name))
+            onReady(downloadFolder("TinkerCAD"), sanitizeName(name), null)
             return
         }
         // Class-level designs page (/classrooms/{id}/designs) — no activity in the
@@ -208,15 +213,15 @@ let resolveDownloadTarget = (id, name, onReady) => {
                 if (proj) {
                     let student = (clazz.students || {})[proj.author]
                     let username = student ? student.name : proj.author
-                    onReady(folder, downloadFileBase(username, proj.name))
+                    onReady(folder, downloadFileBase(username, proj.name), proj)
                     return
                 }
                 tcApi.design(id).then((d) => {
                     console.log("[tcApi.design] not in stored activities; raw detail:", d)
                     let projectName = (d && (d.description || d.name || d.title ||
                         (d.thing && (d.thing.description || d.thing.name)))) || name
-                    onReady(folder, sanitizeName(projectName))
-                }).catch(() => onReady(folder, sanitizeName(name)))
+                    onReady(folder, sanitizeName(projectName), {thumb: designThumbUrl(d)})
+                }).catch(() => onReady(folder, sanitizeName(name), null))
             })
         }, false)
         return
@@ -236,7 +241,7 @@ let resolveDownloadTarget = (id, name, onReady) => {
                 let student = (clazz.students || {})[proj.author]
                 username = student ? student.name : proj.author
             }
-            onReady(folder, username ? downloadFileBase(username, projectName) : sanitizeName(projectName))
+            onReady(folder, username ? downloadFileBase(username, projectName) : sanitizeName(projectName), proj || null)
         })
     }, false)
 }
@@ -406,6 +411,25 @@ let lazyDownloadAllButton = (format, itemFunction) => {
             downloadBatch(jobs)
         })
 
+    })
+}
+
+/** Bulk download of project thumbnails (PNG) for an activity/class. */
+let lazyDownloadAllThumbnailsButton = (itemFunction) => {
+    return bigButton("Download thumbnails", () => {
+        itemFunction((directoryName, projects) => {
+            let jobs = Object.values(projects)
+                .filter((p) => p.thumb)
+                .map((p) => ({
+                    url: p.thumb,
+                    filename: `${directoryName}/${p.downloadName}.png`
+                }))
+            if (jobs.length === 0) {
+                alert("Brak miniatur do pobrania")
+                return
+            }
+            downloadBatch(jobs)
+        })
     })
 }
 
@@ -1433,6 +1457,16 @@ let main = () => {
                     })
                 })
             })
+            button("PNG", () => {
+                resolveDownloadTarget(id, name, (folder, fileBase, proj) => {
+                    let url = (proj && proj.thumb) || item.querySelector(".thumbnail img")?.src
+                    if (!url) {
+                        alert("Brak miniatury dla tego projektu")
+                        return
+                    }
+                    downloadBatch([{url: url, filename: `${folder}/${fileBase}.png`}])
+                })
+            })
             // container.style.border = "2px solid #FFD700"
 
             item.querySelector(".thumbnail").insertAdjacentElement("beforebegin", container)
@@ -1494,7 +1528,8 @@ let main = () => {
                                 let username = student ? student.name : project.author
                                 downloadItems[project.id] = {
                                     id: project.id,
-                                    downloadName: downloadFileBase(username, project.name)
+                                    downloadName: downloadFileBase(username, project.name),
+                                    thumb: project.thumb || null
                                 }
                             }
                             onComplete(directoryName, downloadItems)
@@ -1504,6 +1539,7 @@ let main = () => {
 
                 elem.appendChild(lazyDownloadAllButton("stl", lazyAction))
                 elem.appendChild(lazyDownloadAllButton("svg", lazyAction))
+                elem.appendChild(lazyDownloadAllThumbnailsButton(lazyAction))
             })
 
 
