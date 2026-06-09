@@ -70,7 +70,7 @@ let downloadFolder = (className) => {
 /** Download file base name: "{username} {project name}". */
 let downloadFileBase = (username, projectName) => sanitizeName(`${username || ''} ${projectName || ''}`)
 
-/** CSG STL/SVG download URL for a design. */
+/** CSG STL/OBJ download URL for a design. */
 let designDownloadUrl = (designId, format) => `https://csg-prd.tinkercad.com/things/${designId}/polysoup.${format}?rev=-1`
 
 /** Best thumbnail URL from a design object or stored project (detail > filmstrip). */
@@ -599,7 +599,7 @@ let isActive = (message = false) => {
  * Download a project
  * @param project Download object, see example objects for example.
  * @param directoryName Name of directory that the items will be downloaded to
- * @param format Format to download the items as (STL SVG etc)
+ * @param format Format to download the items as (STL OBJ etc)
  * @param onComplete Callback run once download complete.
  */
 let download = (project, directoryName, format, onComplete = () => {
@@ -951,6 +951,10 @@ let enableView = (id, enable, disable) => {
     views[id] = {id: id, enable: enable, disable: disable}
     let container = document.createElement("div")
     container.classList.add("view")
+    Object.assign(container.style, {
+        position: "fixed", inset: "0", zIndex: "2147483640",
+        display: "flex", flexDirection: "column", overflow: "hidden", background: "#fff"
+    })
     document.body.appendChild(container)
     enable(container)
 
@@ -998,11 +1002,18 @@ let galleryViewEnable = (projects = null) => {
         if (!projects)
             updateStorage()
 
-        // ── Header bar ──────────────────────────────────────────────
+        // ── Top progress bar (counts down to the next slide) ────────
+        let progress = document.createElement("div")
+        Object.assign(progress.style, {height: "3px", width: "100%", background: "#e2e8f0", flex: "0 0 auto"})
+        let progressFill = document.createElement("div")
+        Object.assign(progressFill.style, {height: "100%", width: "0%", background: "#4076c7"})
+        progress.appendChild(progressFill)
+
+        // ── Control bar ─────────────────────────────────────────────
         let bar = document.createElement("div")
         Object.assign(bar.style, {
             display: "flex", alignItems: "center", gap: "10px",
-            height: "8vh", padding: "0 12px", boxSizing: "border-box",
+            flex: "0 0 auto", padding: "8px 12px", boxSizing: "border-box",
             fontFamily: "Open Sans, Helvetica, Arial, sans-serif"
         })
         let labels = document.createElement("div")
@@ -1016,23 +1027,24 @@ let galleryViewEnable = (projects = null) => {
         let counter = document.createElement("span")
         Object.assign(counter.style, {fontSize: "13px", color: "#666", minWidth: "60px", textAlign: "center"})
 
-        // ── Display stage ───────────────────────────────────────────
+        // ── Display stage (flex:1 — no page scrollbars) ─────────────
         let stage = document.createElement("div")
         Object.assign(stage.style, {
-            width: "100vw", height: "92vh", display: "flex",
+            flex: "1", minHeight: "0", display: "flex",
             alignItems: "center", justifyContent: "center",
             background: "#f4f4f4", overflow: "hidden"
         })
         let img = document.createElement("img")
         Object.assign(img.style, {maxWidth: "100%", maxHeight: "100%", objectFit: "contain"})
         let frame = document.createElement("iframe")
-        Object.assign(frame.style, {width: "100vw", height: "92vh", border: "none", display: "none"})
+        Object.assign(frame.style, {width: "100%", height: "100%", border: "none", display: "none"})
         let empty = document.createElement("div")
         Object.assign(empty.style, {color: "#999", fontSize: "16px", display: "none"})
         stage.appendChild(img)
         stage.appendChild(frame)
         stage.appendChild(empty)
 
+        container.appendChild(progress)
         container.appendChild(bar)
         container.appendChild(stage)
 
@@ -1095,32 +1107,60 @@ let galleryViewEnable = (projects = null) => {
         let updatePauseLabel = () => {
             pauseBtn.textContent = paused ? "Play" : "Pause"
         }
+
+        // ── Auto-advance with a visual countdown ────────────────────
+        let timer = null
+        let resetProgress = () => {
+            progressFill.style.transition = "none"
+            progressFill.style.width = "0%"
+        }
+        let freezeProgress = () => {
+            if (timer) {
+                clearTimeout(timer)
+                timer = null
+            }
+            let w = getComputedStyle(progressFill).width
+            progressFill.style.transition = "none"
+            progressFill.style.width = w
+        }
+        let scheduleNext = () => {
+            if (timer) {
+                clearTimeout(timer)
+                timer = null
+            }
+            resetProgress()
+            if (paused || !active || list.length < 2) return
+            chrome.storage.local.get(["speed"], (data) => {
+                if (paused || !active || currentPage !== Context.GALLERY) return
+                let ms = ((data && data.speed != null) ? 6 - Number(data.speed) : 3) * 10000
+                void progressFill.offsetWidth // force reflow so the animation restarts
+                progressFill.style.transition = `width ${ms}ms linear`
+                progressFill.style.width = "100%"
+                timer = setTimeout(() => {
+                    if (paused || !active || currentPage !== Context.GALLERY) return
+                    i = (i + 1) % list.length
+                    render()
+                    scheduleNext()
+                }, ms)
+            })
+        }
+
         let goTo = (idx, manualPause) => {
             if (!list.length) return
             i = (idx % list.length + list.length) % list.length
             if (manualPause) paused = true
             render()
             updatePauseLabel()
-        }
-
-        let loop = () => {
-            chrome.storage.local.get(["speed"], (data) => {
-                let speed = (data && data.speed != null) ? 6 - Number(data.speed) : 3
-                setTimeout(() => {
-                    if (!active || currentPage !== Context.GALLERY) return
-                    if (!paused && list.length) {
-                        i = (i + 1) % list.length
-                        render()
-                    }
-                    loop()
-                }, speed * 10000)
-            })
+            if (paused) freezeProgress()
+            else scheduleNext()
         }
 
         // ── Controls ────────────────────────────────────────────────
         let pauseBtn = bigButton("Pause", () => {
             paused = !paused
             updatePauseLabel()
+            if (paused) freezeProgress()
+            else scheduleNext()
         })
         let modeBtn = bigButton("3D", () => {
             mode = mode === "3d" ? "image" : "3d"
@@ -1130,6 +1170,7 @@ let galleryViewEnable = (projects = null) => {
 
         bar.appendChild(bigButton("Back", () => {
             active = false
+            if (timer) clearTimeout(timer)
             currentPage = prevPage
             disableView("gallery")
         }))
@@ -1144,7 +1185,7 @@ let galleryViewEnable = (projects = null) => {
             list = items || []
             i = 0
             render()
-            loop()
+            scheduleNext()
         }
         if (projects) {
             begin(projects)
@@ -1197,16 +1238,18 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
         let header = document.createElement("div")
         header.classList.add("btn-group")
         Object.assign(header.style, {
-            display: "flex", alignItems: "center", gap: "8px", minHeight: "8vh",
+            display: "flex", alignItems: "center", gap: "8px", flex: "0 0 auto",
             padding: "6px 12px", boxSizing: "border-box", flexWrap: "wrap",
             fontFamily: "Open Sans, Helvetica, Arial, sans-serif"
         })
+        let heading = document.createElement("div")
+        Object.assign(heading.style, {fontSize: "15px", fontWeight: "700", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "40vw"})
         let count = document.createElement("span")
         Object.assign(count.style, {fontSize: "13px", color: "#666", marginLeft: "auto"})
         let grid = document.createElement("div")
         Object.assign(grid.style, {
             display: "flex", flexWrap: "wrap", gap: "12px", padding: "12px",
-            height: "88vh", overflowY: "auto", alignContent: "flex-start", boxSizing: "border-box"
+            flex: "1", minHeight: "0", overflowY: "auto", alignContent: "flex-start", boxSizing: "border-box"
         })
         container.appendChild(header)
         container.appendChild(grid)
@@ -1241,7 +1284,10 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
         let autoId = 0
         let autoOn = false
         let className = ""
+        let activityName = ""
         let codeAdded = false
+        let SIZES = [180, 260, 360] // card widths in px; first = current minimum
+        let sizeIdx = 0
 
         let buildItems = (clazz) => {
             let act = ((clazz && clazz.activities) || {})[activityID] || {}
@@ -1265,14 +1311,15 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
             cardEls = []
             count.innerText = `${items.length} project${items.length === 1 ? "" : "s"}`
             items.forEach((it, idx) => {
+                let cardW = SIZES[sizeIdx]
                 let card = document.createElement("div")
                 Object.assign(card.style, {
-                    width: "180px", cursor: "pointer", border: "2px solid transparent",
+                    width: `${cardW}px`, cursor: "pointer", border: "2px solid transparent",
                     borderRadius: "8px", overflow: "hidden", background: "#fff", boxShadow: "0 1px 4px rgba(0,0,0,0.12)"
                 })
                 let thumbWrap = document.createElement("div")
                 Object.assign(thumbWrap.style, {
-                    width: "100%", height: "135px", background: "#f1f5f9", display: "flex",
+                    width: "100%", height: `${Math.round(cardW * 0.75)}px`, background: "#f1f5f9", display: "flex",
                     alignItems: "center", justifyContent: "center", overflow: "hidden", fontSize: "32px"
                 })
                 if (it.thumb) {
@@ -1431,10 +1478,27 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
             currentPage = Context.ACTIVITY
             disableView("teacher")
         }))
+        header.appendChild(heading)
         let autoBtn = bigButton("Auto", () => toggleAuto())
         header.appendChild(autoBtn)
         header.appendChild(bigButton("Reload", () => load()))
+        // Thumbnail size selector (S = current minimum, M, L)
+        let sizeBtns = []
+        let setSize = (idx) => {
+            sizeIdx = idx
+            sizeBtns.forEach((b, k) => {
+                b.style.backgroundColor = k === idx ? "#4076c7" : "#fff"
+                b.style.color = k === idx ? "#fff" : "#4076c7"
+            })
+            renderGrid()
+        }
+        ;["S", "M", "L"].forEach((labelTxt, idx) => {
+            let b = bigButton(labelTxt, () => setSize(idx))
+            sizeBtns.push(b)
+            header.appendChild(b)
+        })
         header.appendChild(count)
+        setSize(0)
 
         // ── Data load (full) + light periodic refresh ──────────────
         let rebuild = (done = () => {
@@ -1442,6 +1506,8 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
             get(clazzID, (clazz) => {
                 clazz = clazz || {}
                 className = clazz.name || ""
+                activityName = (((clazz.activities || {})[activityID]) || {}).name || ""
+                heading.textContent = [className, activityName].filter(Boolean).join(" · ") || activityID
                 if (!codeAdded && clazz.code) {
                     codeAdded = true
                     let codeBtn = bigButton(String(clazz.code), () => copyTextToClipboard(String(clazz.code).replaceAll("-", "")))
@@ -1577,9 +1643,9 @@ let main = () => {
                     })
                 })
             })
-            button("SVG", () => {
+            button("OBJ", () => {
                 resolveDownloadTarget(id, name, (folder, fileBase) => {
-                    download({id: id, downloadName: fileBase}, folder, "svg", () => {
+                    download({id: id, downloadName: fileBase}, folder, "obj", () => {
                     })
                 })
             })
@@ -1668,7 +1734,7 @@ let main = () => {
                 }
 
                 elem.appendChild(lazyDownloadAllButton("stl", lazyAction))
-                elem.appendChild(lazyDownloadAllButton("svg", lazyAction))
+                elem.appendChild(lazyDownloadAllButton("obj", lazyAction))
                 elem.appendChild(lazyDownloadAllThumbnailsButton(lazyAction))
             })
 
