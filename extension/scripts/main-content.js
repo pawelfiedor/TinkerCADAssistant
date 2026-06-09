@@ -182,6 +182,37 @@ let openTab = (url) => {
     if (isActive()) chrome.runtime.sendMessage({type: 'TC_OPEN_TAB', url, active: false})
 }
 
+/** Small transient toast for status / error messages (reuses the toast stack). */
+let showNotice = (text, kind = "info") => {
+    let colors = {info: "#2c2c2c", error: "#c74040", ok: "#3fa75a"}
+    let n = document.createElement("div")
+    Object.assign(n.style, {
+        background: colors[kind] || colors.info, color: "#fff", padding: "12px 14px",
+        borderRadius: "10px", boxShadow: "0 6px 20px rgba(0,0,0,0.25)", maxWidth: "320px",
+        fontSize: "13px", fontFamily: "Open Sans, Helvetica, Arial, sans-serif", pointerEvents: "none"
+    })
+    n.textContent = text
+    ensureToastContainer().appendChild(n)
+    setTimeout(() => {
+        n.style.transition = "opacity 0.4s ease"
+        n.style.opacity = "0"
+        setTimeout(() => n.remove(), 400)
+    }, 6000)
+}
+
+/** Centralised API-error handler: logs, and shows a one-off notice on expired session. */
+let sessionNoticeShown = false
+let tcApiError = (e, what) => {
+    console.warn(`[tcApi] Failed to fetch ${what}:`, e && e.message)
+    if (e && (e.status === 401 || e.status === 403) && !sessionNoticeShown) {
+        sessionNoticeShown = true
+        showNotice("TinkerCAD session expired — reload the page and sign in again.", "error")
+        setTimeout(() => {
+            sessionNoticeShown = false
+        }, 30000)
+    }
+}
+
 /**
  * Resolve the download folder + file base for a single design card, using the
  * current classroom/activity in the URL.
@@ -645,7 +676,7 @@ let sasGeneralClasses = (onComplete = () => {
             })
         }
     }).catch((e) => {
-        console.warn("[tcApi] Failed to fetch classes:", e.message)
+        tcApiError(e, "classes")
         onComplete()
     })
 }
@@ -680,7 +711,7 @@ let sasClassActivitiesOf = (clazzID, onComplete = () => {
             }, onComplete)
             console.log(`Filling in activities for class of ${clazzID}`)
         }).catch((e) => {
-            console.warn("[tcApi] Failed to fetch activities:", e.message)
+            tcApiError(e, "activities")
             onComplete()
         })
 
@@ -754,7 +785,7 @@ let sasGetProjectsOfActivity = (clazz, activity, onComplete = () => {
             }, onComplete)
             console.log(`Filling in all of the projects of the activity of ${activity}`)
         }).catch((e) => {
-            console.warn("[tcApi] Failed to fetch activity designs:", e.message)
+            tcApiError(e, "activity designs")
             onComplete()
         })
 
@@ -837,7 +868,7 @@ let sasStudentsAndClassCodeOf = (id, onComplete = () => {
                 })
             })
         }).catch((e) => {
-            console.warn("[tcApi] Failed to fetch students:", e.message)
+            tcApiError(e, "students")
             onComplete()
         })
     })
@@ -888,7 +919,7 @@ let sasAllDataForClassActivity = (id, activity, onComplete = () => {
  */
 let getCurrentUser = (onRetrieve) => {
     tcApi.myUserId().then((uid) => onRetrieve(uid)).catch((e) => {
-        console.warn("[tcApi] Failed to fetch user:", e.message)
+        tcApiError(e, "user")
     })
 }
 
@@ -1718,6 +1749,10 @@ let getCurrentClazzID = (onFound) => {
     getCurrentURL((data) => {
         let clazzRegex = /(https:\/\/www\.tinkercad\.com\/classrooms\/)(\w+)\/?(.+)*\/(\w+)/gm
         let v = clazzRegex.exec(data)
+        if (!v) {
+            console.warn("[tca] No classroom id in URL:", data)
+            return
+        }
         onFound(v[2])
 
     }, 100)
@@ -1732,6 +1767,10 @@ let getCurrentActivityAndClassID = (onFound) => {
 
     getCurrentURL((data) => {
         let d = clazzRegex.exec(data)
+        if (!d) {
+            console.warn("[tca] No classroom/activity id in URL:", data)
+            return
+        }
         onFound(d[2], d[4])
     }, 100)
 }

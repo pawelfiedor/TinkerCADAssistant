@@ -66,8 +66,24 @@ const tcApi = {
      * kind: 'student' (submissions) | 'template' (starter/og files).
      */
     async designs(classId, activityId, kind = 'student') {
-        let raw = await this._get(`/class/${classId}/project/${activityId}/designs?from=${kind}&sort=edited&asmType=designs`)
-        return Array.isArray(raw) ? raw : (raw && (raw.designs || raw.items || raw.data)) || []
+        const PAGE_SIZE = 50
+        const byId = new Map()
+        for (let page = 0; page < 40; page++) {
+            const raw = await this._get(`/class/${classId}/project/${activityId}/designs?from=${kind}&sort=edited&asmType=designs&page=${page}&pageSize=${PAGE_SIZE}`)
+            const arr = Array.isArray(raw) ? raw : (raw && (raw.designs || raw.items || raw.data)) || []
+            if (!arr.length) break
+            let added = 0
+            for (const d of arr) {
+                const id = d && (d.id || d.thingId)
+                if (id && !byId.has(id)) {
+                    byId.set(id, d)
+                    added++
+                }
+            }
+            // Stop if the endpoint ignored paging (returned the same set) or this was the last page.
+            if (added === 0 || arr.length < PAGE_SIZE) break
+        }
+        return [...byId.values()]
     },
 
     /** Full detail for a single design (description = name, user_id = owner). */

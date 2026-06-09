@@ -108,25 +108,28 @@ chrome.downloads.onChanged.addListener((delta) => {
     }
 })
 
+// Accept commands only from the extension's own tinkercad.com content script,
+// and only act on tinkercad.com URLs (downloads + tab opening).
+const TC_HOST_RE = /^https:\/\/([a-z0-9-]+\.)*tinkercad\.com\//i
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!msg || !msg.type) return false
+    if (!sender.url || !TC_HOST_RE.test(sender.url)) {
+        sendResponse({ok: false, error: 'untrusted sender'})
+        return false
+    }
 
     if (msg.type === 'TC_DOWNLOAD_BATCH') {
-        DL.enqueue(msg.jobs || [], msg.batchId, sender.tab && sender.tab.id)
-        sendResponse({ok: true, queued: (msg.jobs || []).length})
+        const jobs = (msg.jobs || []).filter((j) => j && typeof j.url === 'string' && TC_HOST_RE.test(j.url))
+        DL.enqueue(jobs, msg.batchId, sender.tab && sender.tab.id)
+        sendResponse({ok: true, queued: jobs.length})
         return false
     }
 
     if (msg.type === 'TC_OPEN_TAB') {
-        chrome.tabs.create({url: msg.url, active: msg.active === true})
-        sendResponse({ok: true})
-        return false
-    }
-
-    if (msg.type === 'TC_RELOAD_ACTIVE') {
-        chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
-            if (tabs[0]) chrome.tabs.update(tabs[0].id, {url: tabs[0].url})
-        })
+        if (typeof msg.url === 'string' && TC_HOST_RE.test(msg.url)) {
+            chrome.tabs.create({url: msg.url, active: msg.active === true})
+        }
         sendResponse({ok: true})
         return false
     }
