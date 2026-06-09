@@ -73,6 +73,9 @@ let downloadFileBase = (username, projectName) => sanitizeName(`${username || ''
 /** CSG STL/OBJ download URL for a design. */
 let designDownloadUrl = (designId, format) => `https://csg-prd.tinkercad.com/things/${designId}/polysoup.${format}?rev=-1`
 
+/** File extension for a download format. OBJ is served as a .zip (obj + mtl). */
+let downloadExt = (format) => format === "obj" ? "zip" : format
+
 /** Best thumbnail URL from a design object or stored project (detail > filmstrip). */
 let designThumbUrl = (d) => (d && d.thumbnail_json && (
     (d.thumbnail_json.detailThumb && d.thumbnail_json.detailThumb.url) ||
@@ -387,7 +390,7 @@ let lazyDownloadAllButton = (format, itemFunction) => {
         itemFunction((directoryName, projects) => {
             let jobs = Object.values(projects).map((project) => ({
                 url: designDownloadUrl(project.id, format),
-                filename: `${directoryName}/${project.downloadName}.${format}`
+                filename: `${directoryName}/${project.downloadName}.${downloadExt(format)}`
             }))
             if (jobs.length === 0) {
                 alert("No projects to download")
@@ -606,7 +609,7 @@ let download = (project, directoryName, format, onComplete = () => {
 }) => {
     downloadBatch([{
         url: designDownloadUrl(project.id, format),
-        filename: `${directoryName}/${project.downloadName}.${format}`
+        filename: `${directoryName}/${project.downloadName}.${downloadExt(format)}`
     }], () => {
     }, () => onComplete())
 }
