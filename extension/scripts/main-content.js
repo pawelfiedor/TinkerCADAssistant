@@ -102,7 +102,7 @@ let createDownloadToast = (total) => {
     })
     let label = document.createElement("div")
     Object.assign(label.style, {marginBottom: "8px", fontWeight: "600"})
-    label.textContent = `Pobieranie… 0/${total}`
+    label.textContent = `Downloading… 0/${total}`
     let barOuter = document.createElement("div")
     Object.assign(barOuter.style, {height: "6px", borderRadius: "3px", background: "#555", overflow: "hidden"})
     let barInner = document.createElement("div")
@@ -119,17 +119,17 @@ let createDownloadToast = (total) => {
     return {
         update: (msg) => {
             setPct(msg.done, msg.failed, msg.total)
-            label.textContent = `Pobieranie… ${msg.done + msg.failed}/${msg.total || total}` + (msg.failed ? ` (błędy: ${msg.failed})` : "")
+            label.textContent = `Downloading… ${msg.done + msg.failed}/${msg.total || total}` + (msg.failed ? ` (errors: ${msg.failed})` : "")
         },
         finish: (res) => {
             setPct(res.done, res.failed, res.total)
             barInner.style.width = "100%"
             if (res.failed) {
                 barInner.style.background = "#c74040"
-                label.textContent = `⚠ Pobrano ${res.done}/${res.total} (błędy: ${res.failed})`
+                label.textContent = `⚠ Downloaded ${res.done}/${res.total} (errors: ${res.failed})`
             } else {
                 barInner.style.background = "#3fa75a"
-                label.textContent = `✓ Pobrano ${res.done}/${res.total}`
+                label.textContent = `✓ Downloaded ${res.done}/${res.total}`
             }
             setTimeout(() => {
                 toast.style.transition = "opacity 0.4s ease"
@@ -405,7 +405,7 @@ let lazyDownloadAllButton = (format, itemFunction) => {
                 filename: `${directoryName}/${project.downloadName}.${format}`
             }))
             if (jobs.length === 0) {
-                alert("Brak projektów do pobrania")
+                alert("No projects to download")
                 return
             }
             downloadBatch(jobs)
@@ -425,7 +425,7 @@ let lazyDownloadAllThumbnailsButton = (itemFunction) => {
                     filename: `${directoryName}/${p.downloadName}.png`
                 }))
             if (jobs.length === 0) {
-                alert("Brak miniatur do pobrania")
+                alert("No thumbnails to download")
                 return
             }
             downloadBatch(jobs)
@@ -656,7 +656,7 @@ let sasGeneralClasses = (onComplete = () => {
             })
         }
     }).catch((e) => {
-        console.warn("[tcApi] Nie udało się pobrać klas:", e.message)
+        console.warn("[tcApi] Failed to fetch classes:", e.message)
         onComplete()
     })
 }
@@ -691,7 +691,7 @@ let sasClassActivitiesOf = (clazzID, onComplete = () => {
             }, onComplete)
             console.log(`Filling in activities for class of ${clazzID}`)
         }).catch((e) => {
-            console.warn("[tcApi] Nie udało się pobrać aktywności:", e.message)
+            console.warn("[tcApi] Failed to fetch activities:", e.message)
             onComplete()
         })
 
@@ -765,7 +765,7 @@ let sasGetProjectsOfActivity = (clazz, activity, onComplete = () => {
             }, onComplete)
             console.log(`Filling in all of the projects of the activity of ${activity}`)
         }).catch((e) => {
-            console.warn("[tcApi] Nie udało się pobrać projektów aktywności:", e.message)
+            console.warn("[tcApi] Failed to fetch activity designs:", e.message)
             onComplete()
         })
 
@@ -848,7 +848,7 @@ let sasStudentsAndClassCodeOf = (id, onComplete = () => {
                 })
             })
         }).catch((e) => {
-            console.warn("[tcApi] Nie udało się pobrać uczniów:", e.message)
+            console.warn("[tcApi] Failed to fetch students:", e.message)
             onComplete()
         })
     })
@@ -904,7 +904,7 @@ let sasAllDataForClassActivity = (id, activity, onComplete = () => {
  */
 let getCurrentUser = (onRetrieve) => {
     tcApi.myUserId().then((uid) => onRetrieve(uid)).catch((e) => {
-        console.warn("[tcApi] Nie udało się pobrać użytkownika:", e.message)
+        console.warn("[tcApi] Failed to fetch user:", e.message)
     })
 }
 
@@ -1461,7 +1461,7 @@ let main = () => {
                 resolveDownloadTarget(id, name, (folder, fileBase, proj) => {
                     let url = (proj && proj.thumb) || item.querySelector(".thumbnail img")?.src
                     if (!url) {
-                        alert("Brak miniatury dla tego projektu")
+                        alert("No thumbnail for this project")
                         return
                     }
                     downloadBatch([{url: url, filename: `${folder}/${fileBase}.png`}])

@@ -18,7 +18,7 @@ const tcApi = {
         let url = path.startsWith('http') ? path : TC_API_BASE + path
         let res = await fetch(url, {credentials: 'include', headers: {Accept: 'application/json'}})
         if (res.status === 401 || res.status === 403) {
-            throw Object.assign(new Error('Sesja TinkerCAD wygasła — zaloguj się ponownie'), {status: res.status})
+            throw Object.assign(new Error('TinkerCAD session expired — please log in again'), {status: res.status})
         }
         if (!res.ok) throw new Error(`TinkerCAD API ${res.status} @ ${path}`)
         return res.json()
@@ -29,7 +29,7 @@ const tcApi = {
         if (this._uid) return this._uid
         let data = await this._get('/users')
         let uid = (data && data.id) || (Array.isArray(data) && data[0] && data[0].id)
-        if (!uid) throw new Error('Nie udało się ustalić ID użytkownika TinkerCAD')
+        if (!uid) throw new Error('Could not determine TinkerCAD user ID')
         this._uid = uid
         return uid
     },
