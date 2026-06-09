@@ -26,13 +26,132 @@ const Context = Object.freeze({
  */
 
 let copyTextToClipboard = (text) => {
-    let copyFrom = document.createElement("textarea");
-    copyFrom.textContent = text;
-    document.body.appendChild(copyFrom);
-    copyFrom.select();
-    document.execCommand('copy');
-    copyFrom.blur();
-    document.body.removeChild(copyFrom);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(() => fallbackCopy(text))
+    } else {
+        fallbackCopy(text)
+    }
+}
+let fallbackCopy = (text) => {
+    let copyFrom = document.createElement("textarea")
+    copyFrom.textContent = text
+    document.body.appendChild(copyFrom)
+    copyFrom.select()
+    document.execCommand('copy')
+    copyFrom.blur()
+    document.body.removeChild(copyFrom)
+}
+
+/**
+ * Strip everything that is not a letter or digit down to single spaces.
+ * Keeps Polish diacritics (they are letters). Used for folder/file names.
+ */
+let sanitizeName = (s) => (s == null ? '' : String(s))
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+
+/** ISO-8601 week-year + week number for the given date. */
+let isoWeek = (date = new Date()) => {
+    let d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+    let day = d.getUTCDay() || 7
+    d.setUTCDate(d.getUTCDate() + 4 - day)
+    let yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
+    let week = Math.ceil((((d - yearStart) / 86400000) + 1) / 7)
+    return {year: d.getUTCFullYear(), week}
+}
+
+/** Download folder name: "{year}W{week} {sanitized class name}". */
+let downloadFolder = (className) => {
+    let {year, week} = isoWeek()
+    return `${year}W${String(week).padStart(2, '0')} ${sanitizeName(className)}`.trim()
+}
+
+/** Download file base name: "{username} {project name}". */
+let downloadFileBase = (username, projectName) => sanitizeName(`${username || ''} ${projectName || ''}`)
+
+/** CSG STL/SVG download URL for a design. */
+let designDownloadUrl = (designId, format) => `https://csg-prd.tinkercad.com/things/${designId}/polysoup.${format}?rev=-1`
+
+/**
+ * Download queue client. Hands a batch of {url, filename} jobs to the service
+ * worker, which runs them with bounded concurrency + automatic retries and
+ * reports progress / completion back here.
+ */
+let pendingBatches = {}
+let downloadBatch = (jobs, onProgress = () => {
+}, onDone = () => {
+}) => {
+    if (!isActive() || !jobs || jobs.length === 0) {
+        onDone({total: 0, done: 0, failed: 0, failures: []})
+        return
+    }
+    let batchId = `b${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    pendingBatches[batchId] = {onProgress, onDone}
+    chrome.runtime.sendMessage({type: 'TC_DOWNLOAD_BATCH', batchId, jobs})
+}
+chrome.runtime.onMessage.addListener((msg) => {
+    if (!msg || !msg.batchId || !pendingBatches[msg.batchId]) return
+    if (msg.type === 'TC_DL_PROGRESS') pendingBatches[msg.batchId].onProgress(msg)
+    if (msg.type === 'TC_DL_BATCH_DONE') {
+        pendingBatches[msg.batchId].onDone(msg)
+        delete pendingBatches[msg.batchId]
+    }
+})
+let openTab = (url) => {
+    if (isActive()) chrome.runtime.sendMessage({type: 'TC_OPEN_TAB', url, active: false})
+}
+
+/**
+ * Resolve the download folder + file base for a single design card, using the
+ * current classroom/activity in the URL.
+ *  - folder:   "{year}W{week} {class name}"   (falls back to "...TinkerCAD")
+ *  - fileBase: "{student name} {project name}" (falls back to just project name)
+ * Loads class data on demand (cached after first time).
+ */
+let resolveDownloadTarget = (id, name, onReady) => {
+    let activityMatch = /\/classrooms\/(\w+)\/activities\/(\w+)/.exec(window.location.href)
+    if (!activityMatch) {
+        let classMatch = /\/classrooms\/(\w+)/.exec(window.location.href)
+        if (!classMatch) {
+            onReady(downloadFolder("TinkerCAD"), sanitizeName(name))
+            return
+        }
+        // Class-level designs page (/classrooms/{id}/designs) — no activity in the
+        // URL, so resolve the project name + owner straight from the design detail.
+        let clazzID = classMatch[1]
+        sasStudentsAndClassCodeOf(clazzID, () => {
+            get(clazzID, (clazz) => {
+                let folder = downloadFolder((clazz && clazz.name) || "TinkerCAD")
+                tcApi.design(id).then((d) => {
+                    let projectName = (d && (d.description || d.name || d.title)) || name
+                    let author = String((d && (d.user_id || d.userId)) || (d && d.owner && d.owner.id) || "")
+                    let student = clazz && clazz.students && clazz.students[author]
+                    let username = student ? student.name : null
+                    onReady(folder, username ? downloadFileBase(username, projectName) : sanitizeName(projectName))
+                }).catch(() => onReady(folder, sanitizeName(name)))
+            })
+        })
+        return
+    }
+    let clazzID = activityMatch[1]
+    let activityID = activityMatch[2]
+    sasAllDataForClassActivity(clazzID, activityID, () => {
+        get(clazzID, (clazz) => {
+            let folder = downloadFolder((clazz && clazz.name) || "TinkerCAD")
+            let projects = clazz && clazz.activities && clazz.activities[activityID] && clazz.activities[activityID].projects
+            let proj = projects && projects[id]
+            // The card's h3 is the author/student, not the project — prefer the
+            // project name stored from the API (design.description).
+            let projectName = (proj && proj.name) || name
+            let username = null
+            if (proj) {
+                let student = (clazz.students || {})[proj.author]
+                username = student ? student.name : proj.author
+            }
+            onReady(folder, username ? downloadFileBase(username, projectName) : sanitizeName(projectName))
+        })
+    }, false)
 }
 
 /**
@@ -45,7 +164,7 @@ let get = (id, onComplete) => {
 
         return
     }
-    chrome.storage.sync.get(["storage"], (data) => {
+    chrome.storage.local.get(["storage"], (data) => {
         let store
         if (!data.storage) {
             store = {}
@@ -82,7 +201,7 @@ let getKeys = (onComplete) => {
 
         return
     }
-    chrome.storage.sync.get(["storage"], (data) => {
+    chrome.storage.local.get(["storage"], (data) => {
         let store
         if (!data.storage) {
             store = {}
@@ -105,7 +224,7 @@ let unsafeSet = (id, value, onComplete) => {
 
         return
     }
-    chrome.storage.sync.get(["storage"], (data) => {
+    chrome.storage.local.get(["storage"], (data) => {
         let store
         if (!data.storage) {
             store = {}
@@ -114,7 +233,7 @@ let unsafeSet = (id, value, onComplete) => {
             store[id] = value
         }
 
-        chrome.storage.sync.set({storage: store}, (data) => {
+        chrome.storage.local.set({storage: store}, (data) => {
             onComplete()
         })
     })
@@ -189,49 +308,25 @@ let bigButton = (text, onclick) => {
 let lazyDownloadAllButton = (format, itemFunction) => {
     return bigButton(`Download ${format}s`, () => {
         itemFunction((directoryName, projects) => {
-            let counter = 0
-            for (const project of Object.values(projects)) {
-                // if (project.name === ogProjectName || project.name === `Copy of ${ogProjectName}`) {
-                //     counter++
-                //     continue
-                //TODO: ADD BACK Skipping of bad named stuffs
-                // }
-
-                download({
-                    id: project.id.replace(" ", ""), downloadName: project.downloadName.replace(/ /g, '')
-                }, directoryName, format, () => {
-                    counter++
-                    if (counter >= projects.length) {
-                        alert("Downloads finished!")
-                    }
-                })
+            let jobs = Object.values(projects).map((project) => ({
+                url: designDownloadUrl(project.id, format),
+                filename: `${directoryName}/${project.downloadName}.${format}`
+            }))
+            if (jobs.length === 0) {
+                alert("Brak projektów do pobrania")
+                return
             }
+            downloadBatch(jobs, () => {
+            }, (res) => {
+                alert(`Pobieranie zakończone: ${res.done}/${res.total}` + (res.failed ? ` (błędów: ${res.failed})` : ""))
+            })
         })
 
     })
 }
 
-let downloadAllButton = (format, directoryName, items) => {
-    return bigButton(`Download ${format}s`, () => {
-        let counter = 0
-        for (const project of Object.values(items)) {
-            // if (project.name === ogProjectName || project.name === `Copy of ${ogProjectName}`) {
-            //     counter++
-            //     continue
-            //TODO: ADD BACK Skipping of bad named stuffs
-            // }
-
-            download({
-                id: project.id.replace(" ", ""), downloadName: project.downloadName.replace(/ /g, '')
-            }, directoryName, format, () => {
-                counter++
-                if (counter >= projects.length) {
-                    alert("Downloads finished!")
-                }
-            })
-        }
-    })
-}
+// downloadAllButton removed — superseded by lazyDownloadAllButton + the
+// service-worker download queue (concurrency + automatic retries).
 
 
 /**
@@ -356,21 +451,8 @@ let updateActiveListeners = () => {
  * @param onComplete Callback called when url is found
  * @param delay Delay to wait between checks
  */
-let getCurrentURL = (onComplete, delay = 100) => {
-    awaitResult(() => {
-        let item = document.querySelector("#urlchecker")
-        if (!item) {
-            sendCommand(["url"], (url) => {
-                setCurrentURL(url)
-            })
-            return false
-        }
-        if (item.textContent !== undefined && item.textContent !== null) return true
-    }, () => {
-        onComplete(document.querySelector("#urlchecker").textContent)
-    }, delay)
-
-
+let getCurrentURL = (onComplete) => {
+    onComplete(window.location.href)
 }
 /**
  * Set the current url the page is at
@@ -401,57 +483,32 @@ let activitiesRegex = /^https:\/\/www\.tinkercad\.com\/classrooms\/.+\/activitie
  * Add actual logic needed here :)
  */
 let first = true
+let lastURL = null
 let onURLChange = () => {
     setTimeout(() => {
-        sendCommand(["url"], (url) => {
-
-            getCurrentURL((newURL) => {
-                if ((url !== newURL && url !== null && url !== undefined) || first) {
-                    if (url.match(tinkerCADURL)) {
-                        if (url.match(activityRegex)) {
-                            currentPage = Context.ACTIVITY
-                        } else if (url.match(classesRegex)) {
-                            currentPage = Context.CLASSES
-                        } else if (url.match(activitiesRegex)) {
-                            currentPage = Context.ACTIVITIES
-                        } else {
-                            currentPage = Context.GENERAL
-                        }
-                        setCurrentURL(url)
-                        updateActiveListeners()
-                        first = false
-                    }
-
+        let url = window.location.href
+        if ((url !== lastURL) || first) {
+            if (url.match(tinkerCADURL)) {
+                if (url.match(activityRegex)) {
+                    currentPage = Context.ACTIVITY
+                } else if (url.match(classesRegex)) {
+                    currentPage = Context.CLASSES
+                } else if (url.match(activitiesRegex)) {
+                    currentPage = Context.ACTIVITIES
+                } else {
+                    currentPage = Context.GENERAL
                 }
-            })
-
-        })
+                lastURL = url
+                updateActiveListeners()
+                first = false
+            }
+        }
         onURLChange()
     }, 1000)
 }
 onURLChange()
 
 
-let frame
-/**
- * Returns the current frame that provides as with new information that we can scrape in the background.
- * NOTE: Please be warry! if you are scraping a few sites that have the same selectors make sure to blank out the url each run see example in collect.
- * @returns {Element}
- */
-let getFrame = (url) => {
-    let queryFrame = document.querySelector("#queryFrame")
-    if (queryFrame) {
-        if (frame.src !== url) frame.src = url
-        return queryFrame
-    }
-    frame = document.createElement("iframe")
-    frame.id = "queryFrame"
-    frame.style.display = "none"
-    frame.src = url
-    document.body.appendChild(frame)
-
-    return frame
-}
 /**
  * Utility to make sure the extension is still not reloaded to prevent the extension once reloaded not throwing exceptions :)
  * @param message Weather a message should be sent when this happens
@@ -485,106 +542,19 @@ let sendCommand = (command, onComplete) => {
  * @param format Format to download the items as (STL SVG etc)
  * @param onComplete Callback run once download complete.
  */
-let download = (project, directoryName, format, onComplete) => {
-    sendCommand(["download", project.id, project.downloadName, directoryName, format], onComplete)
+let download = (project, directoryName, format, onComplete = () => {
+}) => {
+    downloadBatch([{
+        url: designDownloadUrl(project.id, format),
+        filename: `${directoryName}/${project.downloadName}.${format}`
+    }], () => {
+    }, () => onComplete())
 }
 
 
-/**
- * Collect all of a type and manipulate that data in a certain manner.
- * This is based on an iframe.
- */
-let currentCollection = null
-/**
- * Collect and manipulate data from a page
- * @param url URL to grab data from
- * @param awaitSelector Wait for this selector to be on page before beginning.
- * @param generalSelector Use this selector to grab all the items with it.
- * @param map Run this mapping function to manipulate the data
- * @param onComplete Lambada function called once the collection is complete with the results.
- * @param secondary Secondary actions that can be run to collect all the needed info
- */
-let collect = (url, awaitSelector, generalSelector, map, onComplete, secondary = null) => {
-
-    if (!currentCollection) {
-        currentCollection = url
-        awaitResult(() => {
-            return getFrame(url).contentDocument.querySelector(awaitSelector) !== null
-        }, () => {
-
-            let frame = getFrame(url).contentDocument
-            let mapped = []
-            for (let item of frame.querySelectorAll(generalSelector)) {
-                mapped.push(map(item))
-            }
-
-            getFrame("")
-            if (secondary) {
-                onComplete(mapped, secondary(frame))
-            } else {
-                onComplete(mapped)
-            }
-            currentCollection = null
-        })
-
-        return
-    }
-
-    awaitResult(() => {
-        return currentCollection === null
-    }, () => {
-        collect(url, awaitSelector, generalSelector, map, onComplete)
-    })
-}
-
-/**
- * Collect and manipulate data from a page.
- * @param url URL to grab data from
- * @param selector Wait for and collect data from this selector.
- * @param map Run this mapping function to manipulate the data
- * @param onComplete Lambada function called once the collection is complete with the results.
- */
-let collectOne = (url, selector, map, onComplete) => {
-    if (!currentCollection) {
-        currentCollection = url
-
-        awaitResult(() => {
-            return getFrame(url).contentDocument.querySelector(selector) !== null
-        }, () => {
-
-            let frame = getFrame(url).contentDocument
-            getFrame("")
-            onComplete(map(frame.querySelector(selector)))
-            currentCollection = null
-        }, 300)
-
-        return
-    }
-
-    awaitResult(() => {
-        return currentCollection === null
-    }, () => {
-        collectOne(url, selector, map, onComplete)
-    }, 300)
-}
-let basicCollectOne = (url, map, onComplete) => {
-    if (!currentCollection) {
-        currentCollection = url
-
-        let frame = getFrame(url).contentDocument
-        onComplete(map(frame))
-        getFrame("")
-        currentCollection = null
-
-        return
-    }
-
-    awaitResult(() => {
-        return currentCollection === null
-    }, () => {
-        basicCollectOne(url, map, onComplete)
-    }, 300)
-}
+// iframe-based scraping (collect / collectOne / basicCollectOne) removed —
+// data now comes from tcApi (REST). The visual gallery/teacher iframes that
+// render a design's 3D editor live in their own view code below.
 
 
 /**
@@ -593,26 +563,29 @@ let basicCollectOne = (url, map, onComplete) => {
  * @param onComplete Run once the data has been collected.
  */
 let sasGeneralClasses = (onComplete = () => {
-}) => collect("https://www.tinkercad.com/dashboard/classes", ".classes-list", ".classes-list", (item) => {
-    return {
-        name: item.querySelector(".class-name").querySelector("p").textContent,
-        id: item.querySelector(".event-handler").id.replace("Checkbox", "")
-    }
-}, (clazzes) => {
-
-    let i = 0
-    for (let clazz of clazzes) {
-        modify(clazz.id, (data) => {
-            data.name = clazz.name
-            data.id = clazz.id
-
-        }, () => {
-            if (++i >= clazzes.length) onComplete()
-        })
-    }
-
-
-})
+}) => {
+    tcApi.classes().then((groups) => {
+        if (!groups || groups.length === 0) {
+            onComplete()
+            return
+        }
+        let i = 0
+        for (let group of groups) {
+            modify(group.id, (data) => {
+                data.id = group.id
+                data.name = group.name
+                data.code = group.code
+                data.coteacherCode = group.coteacher_code
+                data.memberCount = group.number_members
+            }, () => {
+                if (++i >= groups.length) onComplete()
+            })
+        }
+    }).catch((e) => {
+        console.warn("[tcApi] Nie udało się pobrać klas:", e.message)
+        onComplete()
+    })
+}
 
 
 /**
@@ -625,28 +598,27 @@ let sasClassActivitiesOf = (clazzID, onComplete = () => {
 }, force = false) => {
     get(clazzID, (data) => {
 
-
-        if (data.activities && !force) {
+        if (data && data.activities && !force) {
             onComplete()
             console.log("All activities are up to date!")
             return
         }
 
-        collect(`https://www.tinkercad.com/classrooms/${clazzID}/activities`, ".class-project-card-wrapper", ".class-project-card-wrapper", (item) => {
-
-
-            return {
-                id: item.id.replace("ActivityCard", ""), name: item.querySelector("p").textContent
-            }
-        }, (results) => {
-
+        tcApi.activities(clazzID).then((results) => {
             modify(clazzID, (clazz) => {
                 if (!clazz.activities) clazz.activities = {}
                 for (let result of results) {
-                    if (!clazz.activities[result.id]) clazz.activities[result.id] = result
+                    if (!clazz.activities[result.id]) {
+                        clazz.activities[result.id] = {id: result.id, name: result.name}
+                    } else {
+                        clazz.activities[result.id].name = result.name
+                    }
                 }
             }, onComplete)
             console.log(`Filling in activities for class of ${clazzID}`)
+        }).catch((e) => {
+            console.warn("[tcApi] Nie udało się pobrać aktywności:", e.message)
+            onComplete()
         })
 
     })
@@ -689,44 +661,38 @@ let projectIDRegex = /\/things\/(.{11})/gm
 let sasGetProjectsOfActivity = (clazz, activity, onComplete = () => {
 }, force = false) => {
     get(clazz, (data) => {
-        if (data.activities[activity].projects && /*data.activities[activity].ogFiles &&*/ !force) {
+        if (data && data.activities && data.activities[activity] && data.activities[activity].projects && !force) {
             onComplete()
             console.log("All activities are up to date!")
             return
         }
 
-        collect(`https://www.tinkercad.com/classrooms/${clazz}/activities/${activity}`, ".project-students-assets", ".thing-box", (item) => {
-            let author = (/.+(\w{11}).+/gm).exec(item.querySelector(".author-information").querySelector("a").href)[1]
-            let projectID = item.querySelector("a").href.match(projectIDRegex)[0].replace("/things/", "")
-            let name = item.querySelector("h3").textContent
-
-            return {
-                id: projectID, name: name, author: author,
-            }
-
-        }, (results, secondaryResult) => {
-
+        tcApi.designs(clazz, activity).then((designs) => {
             modify(clazz, (data) => {
+                if (!data.activities) data.activities = {}
+                if (!data.activities[activity]) data.activities[activity] = {id: activity}
                 data.activities[activity].projects = {}
-                data.activities[activity].ogFiles = {}
-                if (secondaryResult) for (let file of secondaryResult) {
-                    data.activities[activity].ogFiles[file.id] = file
-                }
-                for (let project of results) {
-                    data.activities[activity].projects[project.id] = project
+                if (!data.activities[activity].ogFiles) data.activities[activity].ogFiles = {}
+                for (let design of designs) {
+                    let id = design.id || design.thingId
+                    if (!id) continue
+                    data.activities[activity].projects[id] = {
+                        id: id,
+                        name: design.description || design.name || design.title || `Projekt ${id}`,
+                        author: String(design.user_id || design.userId || ""),
+                        tags: design.asm_tags || null,
+                        printDescription: design.asm_description || null,
+                        thumb: (design.thumbnail_json && (
+                            (design.thumbnail_json.detailThumb && design.thumbnail_json.detailThumb.url) ||
+                            (design.thumbnail_json.filmstrip && design.thumbnail_json.filmstrip.url))) || null,
+                        mtime: design.mtime || null
+                    }
                 }
             }, onComplete)
             console.log(`Filling in all of the projects of the activity of ${activity}`)
-        }, (frame) => {
-            let files = []
-            if (!frame.querySelector(".asset-card-wrapper")) return []
-            for (const ogFile of frame.querySelectorAll(".asset-card-wrapper")) {
-                let item = ogFile.querySelector(".asset-card-title")
-                files.push({
-                    id: item.id.replace("TemplateDesignHeaderCard", ""), name: item.querySelector("p").textContent
-                })
-            }
-            return files
+        }).catch((e) => {
+            console.warn("[tcApi] Nie udało się pobrać projektów aktywności:", e.message)
+            onComplete()
         })
 
     })
@@ -769,59 +735,55 @@ let sasGetAllProjectsOfActivitiesOfClazz = (clazz, onComplete = () => {
 let sasStudentsAndClassCodeOf = (id, onComplete = () => {
 }, force = false) => {
     get(id, (data) => {
-        if (data.students && !force) {
+        if (data && data.students && !force) {
             onComplete()
             console.log("All students are up to date!")
             return
         }
-        collect(`https://www.tinkercad.com/classrooms/${id}/students`, ".table-content", ".table-content", (item) => {
-            let username = item.querySelector(".nickname")
-            if (!username) {
-                username = "not-found"
-            } else {
-                username = item.querySelector(".nickname").textContent.replaceAll(" ", "")
-            }
-            let name = item.querySelector("a")
-            if (!name) {
-                name = "not-found"
-            } else {
-                name = item.querySelector("a").title
-            }
-
-            return {
-                id: item.querySelector(".rounded-checkbox").id.replace("StudentCheckbox", ""),
-                name: name,
-                username: username,
-                badgeCount: item.querySelector(".classroom-badge-cell").title.replace("This student has ", "").replace(" badges", "").replace(" badge", "")
-
-            }
-        }, (students, code) => {
-
+        tcApi.members(id).then((members) => {
             modify(id, (data) => {
                 if (!data.students) data.students = {}
-                data.code = code
-                for (let student of students) {
-                    data.students[student.id] = student
+                for (let m of members) {
+                    let sid = String(m.user_id || m.userId || m.member_id || m.id || "")
+                    if (!sid) continue
+                    data.students[sid] = {
+                        id: sid,
+                        name: m.name || m.screen_name || m.identifier || "not-found",
+                        username: m.screen_name || m.name || "not-found",
+                        badgeCount: String((m.badges != null ? m.badges : (m.badge_count != null ? m.badge_count : (m.numberBadges != null ? m.numberBadges : 0))))
+                    }
                 }
-
-            }, onComplete)
-
-        }, (container) => {
-            return container.querySelector("#teacherTooltipButton").textContent.replace("Class link: ", "")
+            }, () => {
+                // Join code lives on the group object, not the roster — backfill if missing.
+                get(id, (cur) => {
+                    if (cur && cur.code) {
+                        onComplete()
+                        return
+                    }
+                    tcApi.classById(id).then((group) => {
+                        if (!group) {
+                            onComplete()
+                            return
+                        }
+                        modify(id, (d) => {
+                            d.code = group.code
+                            d.name = d.name || group.name
+                            d.coteacherCode = group.coteacher_code
+                        }, onComplete)
+                    }).catch(() => onComplete())
+                })
+            })
+        }).catch((e) => {
+            console.warn("[tcApi] Nie udało się pobrać uczniów:", e.message)
+            onComplete()
         })
     })
 
 }
 let sasPrintListForProjects = (ids) => {
-    let items = ids
-    items.unshift("api")
-    sendCommand(items, () => {
-        setTimeout(() => {
-            sendCommand(["api2"], () => {
-                console.log("TEst")
-            })
-        }, 40)
-    })
+    // Print metadata (asm_tags / asm_description) now arrives inline with each
+    // design via tcApi.designs(); the old api/api2 iframe round-trip was removed.
+    console.log("[print] inline tags via tcApi.designs — legacy api/api2 path removed", ids)
 }
 
 
@@ -867,14 +829,9 @@ let sasAllDataForClassActivity = (id, activity, onComplete = () => {
  * @returns {string}
  */
 let getCurrentUser = (onRetrieve) => {
-    collectOne("https://www.tinkercad.com/dashboard", "tk-header-avatar", (data) => {
-        return data.querySelector("img").src.replace("https://api-reader.tinkercad.com/api/user/", "").replace("/images/kursuH3JRXo/t40.jpg", "")
-    }, (data) => {
-        onRetrieve(data)
-
+    tcApi.myUserId().then((uid) => onRetrieve(uid)).catch((e) => {
+        console.warn("[tcApi] Nie udało się pobrać użytkownika:", e.message)
     })
-
-
 }
 
 /**
@@ -905,12 +862,12 @@ let updateStorage = () => {
 
         return
     }
-    chrome.storage.sync.get("user", (user) => {
+    chrome.storage.local.get("user", (user) => {
         getCurrentUser((username) => {
             if (user.user !== username) {
                 console.log("Attempting to rebuild storage cache!")
-                chrome.storage.sync.clear(() => {
-                    chrome.storage.sync.set({user: username}, () => {
+                chrome.storage.local.clear(() => {
+                    chrome.storage.local.set({user: username}, () => {
                         console.log(`Signed-In User changed! Rebuilding Cache`)
                         updateStorage()
                     })
@@ -1013,8 +970,8 @@ let galleryViewEnable = (projects = null) => enableView("gallery", (container) =
     let i = 1
 
     let loop = (projects) => {
-        chrome.storage.sync.get(["speed"], (data) => {
-            let speed = data ? 6 - data.speed : 3
+        chrome.storage.local.get(["speed"], (data) => {
+            let speed = (data && data.speed != null) ? 6 - Number(data.speed) : 3
             setTimeout(() => {
                 if (currentPage !== Context.GALLERY) return
 
@@ -1055,13 +1012,13 @@ let getGalleryProjects = (onComplete) => {
             get(clazzID, (clazz) => {
 
                 let students = []
-                for (const student of Object.values(clazz.students)) {
+                for (const student of Object.values(clazz.students || {})) {
                     if (student.badgeCount !== "0" && student.badgeCount !== null && student.badgeCount !== undefined) {
                         students.push(student.id)
                     }
                 }
-                for (const activity of Object.values(clazz.activities)) {
-                    for (const project of Object.values(activity.projects)) {
+                for (const activity of Object.values(clazz.activities || {})) {
+                    for (const project of Object.values(activity.projects || {})) {
                         if (students.includes(project.author)) {
                             projects.push(project)
 
@@ -1136,9 +1093,9 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
             let first = true
             if (clazz.activities)
                 if (clazz.activities[activityID])
-                    for (let project of Object.values(clazz.activities[activityID].projects)) {
+                    for (let project of Object.values(clazz.activities[activityID].projects || {})) {
 
-                        let b = smallButton(clazz.students[project.author].name, () => {
+                        let b = smallButton(((clazz.students || {})[project.author] || {}).name || project.author, () => {
                             setFrame(project.id, b)
                         })
                         if (first) {
@@ -1184,7 +1141,7 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
                         if (alreadyActive.includes(project.id)) {
                             continue
                         }
-                        let b = smallButton(clazz.students[project.author].name, () => {
+                        let b = smallButton(((clazz.students || {})[project.author] || {}).name || project.author, () => {
                             setFrame(project.id, b)
                         })
                         b.id = project.id
@@ -1222,10 +1179,10 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
             let autoPlayID = 0
 
             let autPlayLoop = (id) => {
-                chrome.storage.sync.get(["speed"], (data) => {
+                chrome.storage.local.get(["speed"], (data) => {
                     let speed = 3
-                    if (data)
-                        speed = 6 - data.speed
+                    if (data && data.speed != null)
+                        speed = 6 - Number(data.speed)
 
 
                     setTimeout(() => {
@@ -1367,7 +1324,6 @@ let getCurrentActivity = (onFound) => {
 
 
 let main = () => {
-    onURLChange()
 
     /**
      * Implementation of TinkerCAD assistant actual look and feel from here on :)
@@ -1391,6 +1347,7 @@ let main = () => {
 
     let easyTools = (context) => {
         onElementsLoad(".thing-box", "border", (item) => {
+            if (item.dataset.tcaButtons === "1") return
             let container = document.createElement("div")
             container.style.padding = "3px"
             container.style.display = "flex"
@@ -1398,6 +1355,7 @@ let main = () => {
             container.style.justifyContent = "center"
             let id = item.querySelector("a").href?.match(projectIDRegex)?.[0]?.replace("/things/", "")
             if (!id) return
+            item.dataset.tcaButtons = "1"
             let name = item.querySelector("h3").textContent
 
             let button = (text, onClick) => {
@@ -1411,22 +1369,19 @@ let main = () => {
             }
 
             button("Tinker this", () => {
-                sendCommand(["open", `https://www.tinkercad.com/things/${id}/edit`, () => {
-                }])
+                openTab(`https://www.tinkercad.com/things/${id}/edit`)
             })
             button("STL", () => {
-                download({
-                    id: id.replace(" ", ""), downloadName: name.replace(/ /g, '')
-                }, "tinkerAssistant", "stl", () => {
+                resolveDownloadTarget(id, name, (folder, fileBase) => {
+                    download({id: id, downloadName: fileBase}, folder, "stl", () => {
+                    })
                 })
-
             })
             button("SVG", () => {
-                download({
-                    id: id.replace(" ", ""), downloadName: name.replace(/ /g, '')
-                }, "tinkerAssistant", "stl", () => {
+                resolveDownloadTarget(id, name, (folder, fileBase) => {
+                    download({id: id, downloadName: fileBase}, folder, "svg", () => {
+                    })
                 })
-
             })
             // container.style.border = "2px solid #FFD700"
 
@@ -1476,18 +1431,24 @@ let main = () => {
             get(clazzID, (clazz) => {
                 let lazyAction = (onComplete) => {
                     sasAllDataForClassActivity(clazzID, activityID, () => {
-                        let activityName = clazz.activities[activityID].name
-                        let projects = clazz.activities[activityID].projects
-                        let downloadItems = {}
+                        // Re-read fresh data — `clazz` captured above is a stale
+                        // snapshot that predates the activity/project load.
+                        get(clazzID, (fresh) => {
+                            let activity = fresh && fresh.activities && fresh.activities[activityID]
+                            let projects = (activity && activity.projects) || {}
+                            let downloadItems = {}
 
-                        let directoryName = `${clazz.name.replace(/ /g, '')}/${activityName.replace(/ /g, '')}`
-                        for (let project of Object.values(projects)) {
-                            downloadItems[project.id] = {
-                                id: project.id, downloadName: clazz.students[project.author].name.replace(/ /g, '')
+                            let directoryName = downloadFolder((fresh && fresh.name) || "TinkerCAD")
+                            for (let project of Object.values(projects)) {
+                                let student = fresh.students ? fresh.students[project.author] : null
+                                let username = student ? student.name : project.author
+                                downloadItems[project.id] = {
+                                    id: project.id,
+                                    downloadName: downloadFileBase(username, project.name)
+                                }
                             }
-
-                        }
-                        onComplete(directoryName, downloadItems)
+                            onComplete(directoryName, downloadItems)
+                        })
                     }, true)
                 }
 
