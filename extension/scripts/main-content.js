@@ -485,8 +485,6 @@ let generateOfflineIndexHtml = (className, projects) => {
 `
 }
 
-}
-
 let exportPortfolioZip = (clazzID, activityID) => {
     let toast = createDownloadToast(1)
     toast.update({ done: 0, failed: 0, total: 1 })
