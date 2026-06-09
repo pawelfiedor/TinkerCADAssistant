@@ -73,10 +73,72 @@ let downloadFileBase = (username, projectName) => sanitizeName(`${username || ''
 /** CSG STL/SVG download URL for a design. */
 let designDownloadUrl = (designId, format) => `https://csg-prd.tinkercad.com/things/${designId}/polysoup.${format}?rev=-1`
 
+/** Floating, bottom-right container that stacks per-batch download toasts. */
+let downloadToastContainer = null
+let ensureToastContainer = () => {
+    if (downloadToastContainer && document.body.contains(downloadToastContainer)) return downloadToastContainer
+    downloadToastContainer = document.createElement("div")
+    downloadToastContainer.id = "tcaDownloadToasts"
+    Object.assign(downloadToastContainer.style, {
+        position: "fixed", right: "16px", bottom: "16px", zIndex: "2147483647",
+        display: "flex", flexDirection: "column", gap: "8px",
+        fontFamily: "Open Sans, Helvetica, Arial, sans-serif", pointerEvents: "none"
+    })
+    document.body.appendChild(downloadToastContainer)
+    return downloadToastContainer
+}
+
+/** Creates a live progress toast for one download batch. */
+let createDownloadToast = (total) => {
+    let toast = document.createElement("div")
+    Object.assign(toast.style, {
+        background: "#2c2c2c", color: "#fff", padding: "12px 14px", borderRadius: "10px",
+        boxShadow: "0 6px 20px rgba(0,0,0,0.25)", width: "260px", fontSize: "13px"
+    })
+    let label = document.createElement("div")
+    Object.assign(label.style, {marginBottom: "8px", fontWeight: "600"})
+    label.textContent = `Pobieranie… 0/${total}`
+    let barOuter = document.createElement("div")
+    Object.assign(barOuter.style, {height: "6px", borderRadius: "3px", background: "#555", overflow: "hidden"})
+    let barInner = document.createElement("div")
+    Object.assign(barInner.style, {height: "100%", width: "0%", background: "#4076c7", transition: "width 0.2s ease"})
+    barOuter.appendChild(barInner)
+    toast.appendChild(label)
+    toast.appendChild(barOuter)
+    ensureToastContainer().appendChild(toast)
+
+    let setPct = (done, failed, t) => {
+        let n = t || total
+        barInner.style.width = `${n ? Math.round(((done + failed) / n) * 100) : 0}%`
+    }
+    return {
+        update: (msg) => {
+            setPct(msg.done, msg.failed, msg.total)
+            label.textContent = `Pobieranie… ${msg.done + msg.failed}/${msg.total || total}` + (msg.failed ? ` (błędy: ${msg.failed})` : "")
+        },
+        finish: (res) => {
+            setPct(res.done, res.failed, res.total)
+            barInner.style.width = "100%"
+            if (res.failed) {
+                barInner.style.background = "#c74040"
+                label.textContent = `⚠ Pobrano ${res.done}/${res.total} (błędy: ${res.failed})`
+            } else {
+                barInner.style.background = "#3fa75a"
+                label.textContent = `✓ Pobrano ${res.done}/${res.total}`
+            }
+            setTimeout(() => {
+                toast.style.transition = "opacity 0.4s ease"
+                toast.style.opacity = "0"
+                setTimeout(() => toast.remove(), 400)
+            }, res.failed ? 6000 : 3000)
+        }
+    }
+}
+
 /**
  * Download queue client. Hands a batch of {url, filename} jobs to the service
  * worker, which runs them with bounded concurrency + automatic retries and
- * reports progress / completion back here.
+ * reports progress / completion back here, shown live in a toast.
  */
 let pendingBatches = {}
 let downloadBatch = (jobs, onProgress = () => {
@@ -87,7 +149,17 @@ let downloadBatch = (jobs, onProgress = () => {
         return
     }
     let batchId = `b${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-    pendingBatches[batchId] = {onProgress, onDone}
+    let toast = createDownloadToast(jobs.length)
+    pendingBatches[batchId] = {
+        onProgress: (msg) => {
+            toast.update(msg)
+            onProgress(msg)
+        },
+        onDone: (msg) => {
+            toast.finish(msg)
+            onDone(msg)
+        }
+    }
     chrome.runtime.sendMessage({type: 'TC_DOWNLOAD_BATCH', batchId, jobs})
 }
 chrome.runtime.onMessage.addListener((msg) => {
@@ -331,10 +403,7 @@ let lazyDownloadAllButton = (format, itemFunction) => {
                 alert("Brak projektów do pobrania")
                 return
             }
-            downloadBatch(jobs, () => {
-            }, (res) => {
-                alert(`Pobieranie zakończone: ${res.done}/${res.total}` + (res.failed ? ` (błędów: ${res.failed})` : ""))
-            })
+            downloadBatch(jobs)
         })
 
     })
@@ -469,24 +538,6 @@ let updateActiveListeners = () => {
 let getCurrentURL = (onComplete) => {
     onComplete(window.location.href)
 }
-/**
- * Set the current url the page is at
- * @param url The url that the page is at.
- */
-let setCurrentURL = (url) => {
-    let item = document.querySelector("#urlchecker")
-    if (!item) {
-        let newItem = document.createElement("p")
-        newItem.style.display = "none"
-        newItem.textContent = url
-        newItem.id = "urlchecker"
-
-        document.body.appendChild(newItem)
-    } else {
-        item.textContent = url
-    }
-
-}
 let activityRegex = /^https:\/\/www\.tinkercad\.com\/classrooms\/.+\/activities\/.+$/gm
 let tinkerCADURL = /^https:\/\/www\.tinkercad\.com.*$/gm
 let classesRegex = /^https:\/\/www\.tinkercad\.com\/dashboard\/classes$/gm
@@ -534,22 +585,6 @@ let isActive = (message = false) => {
     return chrome.runtime?.id
 
 }
-/**
- * Send a command to the service worker
- * @param command Command to run
- * @param onComplete Response from command.
- */
-let sendCommand = (command, onComplete) => {
-    if (!isActive()) {
-
-        return
-    }
-    chrome.runtime.sendMessage({value: command.join("(SPLIT)")}, (response) => {
-        onComplete(response)
-
-    });
-}
-
 /**
  * Download a project
  * @param project Download object, see example objects for example.
