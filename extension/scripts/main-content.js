@@ -1074,9 +1074,6 @@ let printerViewEnable = () => {
         let SIZES = [180, 260, 360]
         let sizeIdx = 0
         let groupByClass = true
-        let oneStudentPerPageCheckbox = document.createElement("input")
-        oneStudentPerPageCheckbox.type = "checkbox"
-        oneStudentPerPageCheckbox.style.cursor = "pointer"
 
         // ── Header ──────────────────────────────────────────────────
         let header = document.createElement("div")
@@ -1285,6 +1282,25 @@ let printerViewEnable = () => {
             downloadBatch(jobs)
         }
 
+        let escapeHtml = (str) => {
+            if (!str) return ""
+            return str
+                .replaceAll("&", "&amp;")
+                .replaceAll("<", "&lt;")
+                .replaceAll(">", "&gt;")
+                .replaceAll('"', "&quot;")
+                .replaceAll("'", "&#039;")
+        }
+        let formatDate = (mtime) => {
+            if (!mtime) return "N/A"
+            try {
+                let ms = toMillis(mtime)
+                return new Date(ms).toLocaleDateString("pl-PL")
+            } catch (e) {
+                return "N/A"
+            }
+        }
+
         let printReport = () => {
             let chosen = allItems.filter((it) => selected.has(it.id))
             if (!chosen.length) {
@@ -1296,134 +1312,58 @@ let printerViewEnable = () => {
                 alert("Please allow popups to generate the report.")
                 return
             }
-            let escapeHtml = (str) => {
-                if (!str) return ""
-                return str
-                    .replaceAll("&", "&amp;")
-                    .replaceAll("<", "&lt;")
-                    .replaceAll(">", "&gt;")
-                    .replaceAll('"', "&quot;")
-                    .replaceAll("'", "&#039;")
-            }
-            let formatDate = (mtime) => {
-                if (!mtime) return "N/A"
-                try {
-                    let ms = toMillis(mtime)
-                    return new Date(ms).toLocaleDateString("pl-PL")
-                } catch (e) {
-                    return "N/A"
+
+            // Group projects by class name
+            let groups = new Map()
+            chosen.forEach((it) => {
+                let key = it.className || "(unknown class)"
+                if (!groups.has(key)) {
+                    groups.set(key, [])
                 }
-            }
+                groups.get(key).push(it)
+            })
 
-            let oneStudentPerPage = oneStudentPerPageCheckbox.checked
             let sectionsHtml = ""
-            let groupsCount = 0
-
-            if (oneStudentPerPage) {
-                // Group projects by student (student Name + class Name)
-                let studentGroups = new Map()
-                chosen.forEach((it) => {
-                    let key = `${it.student || "(unknown)"} · ${it.className || "(unknown class)"}`
-                    if (!studentGroups.has(key)) {
-                        studentGroups.set(key, {student: it.student, className: it.className, items: []})
+            groups.forEach((items, className) => {
+                let cardsHtml = items.map((it) => {
+                    let dateStr = formatDate(it.mtime)
+                    let imgHtml = ""
+                    if (it.thumb) {
+                        imgHtml = `<img src="${it.thumb}" alt="" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">`
                     }
-                    studentGroups.get(key).items.push(it)
-                })
-                groupsCount = studentGroups.size
-
-                studentGroups.forEach((groupData, key) => {
-                    let cardsHtml = groupData.items.map((it) => {
-                        let dateStr = formatDate(it.mtime)
-                        let imgHtml = ""
-                        if (it.thumb) {
-                            imgHtml = `<img src="${it.thumb}" alt="" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">`
-                        }
-                        return `
-                        <div class="card">
-                            <div class="thumb-wrap">
-                                ${imgHtml}
-                                <span style="display: ${it.thumb ? 'none' : 'block'};">🧊</span>
-                            </div>
-                            <div class="info">
-                                <div>
-                                    <h2 class="student">${escapeHtml(it.student || '(unknown)')}</h2>
-                                    <div class="details"><strong>Project:</strong> ${escapeHtml(it.name || '(untitled)')}</div>
-                                </div>
-                                <div>
-                                    <div class="date">Modified: ${dateStr}</div>
-                                    <div class="checklist">
-                                        <span><span class="chk-box"></span>Printed</span>
-                                        <span><span class="chk-box"></span>Verified</span>
-                                        <span style="display: flex; flex-grow: 1; align-items: center;">Notes:<span class="notes-line"></span></span>
-                                    </div>
-                                </div>
-                            </div>
+                    return `
+                    <div class="card">
+                        <div class="thumb-wrap">
+                            ${imgHtml}
+                            <span style="display: ${it.thumb ? 'none' : 'block'};">🧊</span>
                         </div>
-                        `
-                    }).join("")
-
-                    sectionsHtml += `
-                    <div class="student-section student-page-break">
-                        <h2 class="class-header">${escapeHtml(groupData.student || '(unknown)')} (${escapeHtml(groupData.className || '(unknown class)')})</h2>
-                        <div class="grid">
-                            ${cardsHtml}
+                        <div class="info">
+                            <div>
+                                <h2 class="student">${escapeHtml(it.student || '(unknown)')}</h2>
+                                <div class="details"><strong>Project:</strong> ${escapeHtml(it.name || '(untitled)')}</div>
+                            </div>
+                            <div>
+                                <div class="date">Modified: ${dateStr}</div>
+                                <div class="checklist">
+                                    <span><span class="chk-box"></span>Printed</span>
+                                    <span><span class="chk-box"></span>Verified</span>
+                                    <span style="display: flex; flex-grow: 1; align-items: center;">Notes:<span class="notes-line"></span></span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     `
-                })
-            } else {
-                // Group projects by class name
-                let groups = new Map()
-                chosen.forEach((it) => {
-                    let key = it.className || "(unknown class)"
-                    if (!groups.has(key)) {
-                        groups.set(key, [])
-                    }
-                    groups.get(key).push(it)
-                })
-                groupsCount = groups.size
+                }).join("")
 
-                groups.forEach((items, className) => {
-                    let cardsHtml = items.map((it) => {
-                        let dateStr = formatDate(it.mtime)
-                        let imgHtml = ""
-                        if (it.thumb) {
-                            imgHtml = `<img src="${it.thumb}" alt="" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">`
-                        }
-                        return `
-                        <div class="card">
-                            <div class="thumb-wrap">
-                                ${imgHtml}
-                                <span style="display: ${it.thumb ? 'none' : 'block'};">🧊</span>
-                            </div>
-                            <div class="info">
-                                <div>
-                                    <h2 class="student">${escapeHtml(it.student || '(unknown)')}</h2>
-                                    <div class="details"><strong>Project:</strong> ${escapeHtml(it.name || '(untitled)')}</div>
-                                </div>
-                                <div>
-                                    <div class="date">Modified: ${dateStr}</div>
-                                    <div class="checklist">
-                                        <span><span class="chk-box"></span>Printed</span>
-                                        <span><span class="chk-box"></span>Verified</span>
-                                        <span style="display: flex; flex-grow: 1; align-items: center;">Notes:<span class="notes-line"></span></span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        `
-                    }).join("")
-
-                    sectionsHtml += `
-                    <div class="student-section">
-                        <h2 class="class-header">${escapeHtml(className)} (${items.length})</h2>
-                        <div class="grid">
-                            ${cardsHtml}
-                        </div>
+                sectionsHtml += `
+                <div class="class-section">
+                    <h2 class="class-header">${escapeHtml(className)} (${items.length})</h2>
+                    <div class="grid">
+                        ${cardsHtml}
                     </div>
-                    `
-                })
-            }
+                </div>
+                `
+            })
 
             let html = `
 <!DOCTYPE html>
@@ -1457,7 +1397,7 @@ let printerViewEnable = () => {
             color: #64748b;
             text-align: right;
         }
-        .student-section {
+        .class-section {
             margin-bottom: 32px;
             page-break-inside: auto;
             break-inside: auto;
@@ -1572,6 +1512,207 @@ let printerViewEnable = () => {
                 page-break-inside: avoid;
                 break-inside: avoid;
             }
+            .class-section {
+                page-break-after: always;
+                break-after: page;
+            }
+            .class-section:last-of-type {
+                page-break-after: avoid;
+                break-after: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div>
+            <h1>TinkerCAD Print Verification Report</h1>
+            <div style="font-size: 13px; color: #475569; margin-top: 4px;">Selected Groups: ${groups.size} · Total Projects: ${chosen.length}</div>
+        </div>
+        <div class="meta">
+            <div>Date: ${new Date().toLocaleDateString("pl-PL")}</div>
+            <div>Generated by TinkerCAD Assistant</div>
+        </div>
+    </header>
+    
+    ${sectionsHtml}
+
+    <script>
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                window.print();
+            }, 600);
+        });
+    <\/script>
+</body>
+</html>
+            `
+            win.document.write(html)
+            win.document.close()
+        }
+
+        let printReportPerStudent = () => {
+            let chosen = allItems.filter((it) => selected.has(it.id))
+            if (!chosen.length) {
+                alert("No selected projects to print")
+                return
+            }
+            let win = window.open("", "_blank")
+            if (!win) {
+                alert("Please allow popups to generate the report.")
+                return
+            }
+
+            // Group projects by student (student Name + class Name)
+            let studentGroups = new Map()
+            chosen.forEach((it) => {
+                let key = `${it.student || "(unknown)"} · ${it.className || "(unknown class)"}`
+                if (!studentGroups.has(key)) {
+                    studentGroups.set(key, {student: it.student, className: it.className, items: []})
+                }
+                studentGroups.get(key).items.push(it)
+            })
+
+            let sectionsHtml = ""
+            studentGroups.forEach((groupData, key) => {
+                let cardsHtml = groupData.items.map((it) => {
+                    let imgHtml = ""
+                    if (it.thumb) {
+                        imgHtml = `<img src="${it.thumb}" alt="" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">`
+                    }
+                    return `
+                    <div class="card">
+                        <div class="thumb-wrap">
+                            ${imgHtml}
+                            <span style="display: ${it.thumb ? 'none' : 'block'};">🧊</span>
+                        </div>
+                        <div class="info">
+                            <h2 class="project-name">${escapeHtml(it.name || '(untitled)')}</h2>
+                        </div>
+                    </div>
+                    `
+                }).join("")
+
+                sectionsHtml += `
+                <div class="student-section student-page-break">
+                    <h2 class="class-header">${escapeHtml(groupData.student || '(unknown)')} (${escapeHtml(groupData.className || '(unknown class)')})</h2>
+                    <div class="grid">
+                        ${cardsHtml}
+                    </div>
+                </div>
+                `
+            })
+
+            let html = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>TinkerCAD Student Projects Report</title>
+    <style>
+        body {
+            font-family: 'Open Sans', Helvetica, Arial, sans-serif;
+            color: #1e293b;
+            margin: 0;
+            padding: 20px;
+            background: #fff;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #cbd5e1;
+            padding-bottom: 12px;
+            margin-bottom: 24px;
+        }
+        h1 {
+            font-size: 24px;
+            margin: 0;
+            color: #0f172a;
+        }
+        .meta {
+            font-size: 13px;
+            color: #64748b;
+            text-align: right;
+        }
+        .student-section {
+            margin-bottom: 32px;
+            page-break-inside: auto;
+            break-inside: auto;
+        }
+        .class-header {
+            font-size: 16px;
+            font-weight: 700;
+            color: #4076c7;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 6px;
+            margin: 0 0 12px 0;
+            page-break-after: avoid;
+            break-after: avoid;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+        .card {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 12px;
+            display: flex;
+            gap: 16px;
+            page-break-inside: avoid;
+            break-inside: avoid;
+            background: #fff;
+        }
+        .thumb-wrap {
+            width: 220px;
+            height: 165px;
+            background: #f1f5f9;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+            overflow: hidden;
+            flex-shrink: 0;
+            border: 1px solid #e2e8f0;
+        }
+        .thumb-wrap img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .info {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            flex-grow: 1;
+            min-width: 0;
+        }
+        .project-name {
+            font-weight: 700;
+            font-size: 18px;
+            margin: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: #0f172a;
+        }
+        @media print {
+            body {
+                padding: 0;
+            }
+            header {
+                margin-bottom: 16px;
+            }
+            .card {
+                border: 1px solid #cbd5e1;
+            }
+            .card {
+                page-break-inside: avoid;
+                break-inside: avoid;
+            }
             .student-page-break {
                 page-break-after: always;
                 break-after: page;
@@ -1586,10 +1727,8 @@ let printerViewEnable = () => {
 <body>
     <header>
         <div>
-            <h1>TinkerCAD Print Verification Report</h1>
-            <div style="font-size: 13px; color: #475569; margin-top: 4px;">
-                ${oneStudentPerPage ? `Total Students: ${groupsCount}` : `Selected Groups: ${groupsCount}`} · Total Projects: ${chosen.length}
-            </div>
+            <h1>TinkerCAD Student Projects Report</h1>
+            <div style="font-size: 13px; color: #475569; margin-top: 4px;">Total Students: ${studentGroups.size} · Total Projects: ${chosen.length}</div>
         </div>
         <div class="meta">
             <div>Date: ${new Date().toLocaleDateString("pl-PL")}</div>
@@ -1632,18 +1771,8 @@ let printerViewEnable = () => {
         header.appendChild(bigButton("Clear", () => clearAll()))
         header.appendChild(bigButton("Download STL", () => bulk("stl")))
         header.appendChild(bigButton("Download OBJ", () => bulk("obj")))
-        
-        let printReportBtn = bigButton("Print Report", () => printReport())
-        let printOptContainer = document.createElement("label")
-        Object.assign(printOptContainer.style, {
-            display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", 
-            color: "#475569", cursor: "pointer", userSelect: "none"
-        })
-        printOptContainer.appendChild(oneStudentPerPageCheckbox)
-        printOptContainer.appendChild(document.createTextNode("1 uczeń / strona"))
-        
-        header.appendChild(printReportBtn)
-        header.appendChild(printOptContainer)
+        header.appendChild(bigButton("Print Report", () => printReport()))
+        header.appendChild(bigButton("Print per Student", () => printReportPerStudent()))
         let sizeBtns = []
         let setSize = (idx) => {
             sizeIdx = idx
