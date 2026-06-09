@@ -843,11 +843,6 @@ let sasStudentsAndClassCodeOf = (id, onComplete = () => {
     })
 
 }
-let sasPrintListForProjects = (ids) => {
-    // Print metadata (asm_tags / asm_description) now arrives inline with each
-    // design via tcApi.designs(); the old api/api2 iframe round-trip was removed.
-    console.log("[print] inline tags via tcApi.designs — legacy api/api2 path removed", ids)
-}
 
 
 const UpdateItems = Object.freeze({
@@ -905,6 +900,10 @@ let usasAllData = (onComplete = () => {
     sasGeneralClasses(() => {
 
         getKeys((clazzIds) => {
+            if (!clazzIds.length) {
+                onComplete()
+                return
+            }
             let i = 0
             for (let key of clazzIds) {
                 sasAllDataForClass(key, () => {
@@ -920,9 +919,10 @@ let usasAllData = (onComplete = () => {
  * Checking in general items that have never been adding them adding them.
  * This does not completely rebuild the storage.
  */
-let updateStorage = () => {
+let updateStorage = (onComplete = () => {
+}) => {
     if (!isActive()) {
-
+        onComplete()
         return
     }
     chrome.storage.local.get("user", (user) => {
@@ -932,12 +932,12 @@ let updateStorage = () => {
                 chrome.storage.local.clear(() => {
                     chrome.storage.local.set({user: username}, () => {
                         console.log(`Signed-In User changed! Rebuilding Cache`)
-                        updateStorage()
+                        updateStorage(onComplete)
                     })
                 })
                 return
             }
-            usasAllData()
+            usasAllData(onComplete)
 
 
         })
@@ -949,8 +949,10 @@ let updateStorage = () => {
 let views = {}
 
 let enableView = (id, enable, disable) => {
+    // The view is a fixed full-screen overlay, so hiding #main is optional;
+    // guard it because some pages (e.g. /dashboard/classes) have no #main.
     let og = document.querySelector("#main")
-    og.style.display = "none"
+    if (og) og.style.display = "none"
     views[id] = {id: id, enable: enable, disable: disable}
     let container = document.createElement("div")
     container.classList.add("view")
@@ -965,7 +967,7 @@ let enableView = (id, enable, disable) => {
 
 let disableView = (id) => {
     let og = document.querySelector("#main")
-    og.style.display = "block"
+    if (og) og.style.display = "block"
 
     for (let item of document.querySelectorAll(".view")) {
         console.log(`Disabled view: ${id}`)
@@ -978,20 +980,175 @@ function contains_heb(str) {
     return (/[\u0590-\u05FF]/).test(str);
 }
 
-let printerViewEnable = () => enableView("printer", (container) => {
-    currentPage = Context.PRINTER
-    const printItem = () => {
-        const item = document.createElement("button")
-        item.textContent = "test"
-        item.classList.add("testing")
-        container.appendChild(item)
-    }
-    printItem()
+let printerViewEnable = () => {
+    let prevPage = currentPage
+    return enableView("printer", (container) => {
+        currentPage = Context.PRINTER
+        let allItems = []          // {id, name, student, className, thumb}
+        let selected = new Set()   // selected design ids
+        let cardById = new Map()   // id -> card element
+        let SIZES = [180, 260, 360]
+        let sizeIdx = 0
 
-}, () => {
+        // ── Header ──────────────────────────────────────────────────
+        let header = document.createElement("div")
+        Object.assign(header.style, {
+            display: "flex", alignItems: "center", gap: "8px", flex: "0 0 auto",
+            padding: "8px 12px", boxSizing: "border-box", flexWrap: "wrap",
+            fontFamily: "Open Sans, Helvetica, Arial, sans-serif"
+        })
+        let titleEl = document.createElement("strong")
+        titleEl.textContent = "Print Manager"
+        titleEl.style.fontSize = "16px"
+        let filterInput = document.createElement("input")
+        filterInput.type = "search"
+        filterInput.placeholder = "Filter by student / class / project…"
+        Object.assign(filterInput.style, {padding: "6px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", minWidth: "220px"})
+        let selCount = document.createElement("span")
+        Object.assign(selCount.style, {fontSize: "13px", color: "#666", marginLeft: "auto"})
 
+        // ── Status line + grid ──────────────────────────────────────
+        let status = document.createElement("div")
+        Object.assign(status.style, {padding: "8px 12px", color: "#666", fontSize: "13px", flex: "0 0 auto"})
+        let grid = document.createElement("div")
+        Object.assign(grid.style, {
+            display: "flex", flexWrap: "wrap", gap: "12px", padding: "12px",
+            flex: "1", minHeight: "0", overflowY: "auto", alignContent: "flex-start", boxSizing: "border-box"
+        })
+        container.appendChild(header)
+        container.appendChild(status)
+        container.appendChild(grid)
 
-})
+        let updateSelCount = () => {
+            selCount.textContent = `${selected.size} selected`
+        }
+        let filteredItems = () => {
+            let ft = filterInput.value.trim().toLowerCase()
+            if (!ft) return allItems
+            return allItems.filter((it) => `${it.student} ${it.className} ${it.name}`.toLowerCase().includes(ft))
+        }
+        let applySelStyle = (card, isSel) => {
+            card.style.border = isSel ? "3px solid #16a34a" : "2px solid transparent"
+        }
+        let toggle = (id, card) => {
+            if (selected.has(id)) selected.delete(id)
+            else selected.add(id)
+            applySelStyle(card, selected.has(id))
+            updateSelCount()
+        }
+        let makeCard = (it) => {
+            let cardW = SIZES[sizeIdx]
+            let card = document.createElement("div")
+            Object.assign(card.style, {
+                width: `${cardW}px`, cursor: "pointer", borderRadius: "8px",
+                overflow: "hidden", background: "#fff", boxShadow: "0 1px 4px rgba(0,0,0,0.12)"
+            })
+            applySelStyle(card, selected.has(it.id))
+            let thumbWrap = document.createElement("div")
+            Object.assign(thumbWrap.style, {
+                width: "100%", height: `${Math.round(cardW * 0.75)}px`, background: "#f1f5f9",
+                display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", fontSize: "32px"
+            })
+            if (it.thumb) {
+                let im = document.createElement("img")
+                Object.assign(im.style, {width: "100%", height: "100%", objectFit: "cover"})
+                im.src = it.thumb
+                im.alt = it.name || ""
+                thumbWrap.appendChild(im)
+            } else {
+                thumbWrap.textContent = "🧊"
+            }
+            let lbl = document.createElement("div")
+            Object.assign(lbl.style, {padding: "6px 8px 0", fontSize: "13px", fontWeight: "600", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"})
+            lbl.textContent = it.student
+            let sub = document.createElement("div")
+            Object.assign(sub.style, {padding: "0 8px 6px", fontSize: "11px", color: "#64748b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"})
+            sub.textContent = [it.className, it.name].filter(Boolean).join(" · ")
+            lbl.title = `${it.student} — ${it.name || ""}`
+            card.appendChild(thumbWrap)
+            card.appendChild(lbl)
+            card.appendChild(sub)
+            card.onclick = () => toggle(it.id, card)
+            return card
+        }
+        let renderGrid = () => {
+            grid.innerHTML = ""
+            cardById.clear()
+            if (!allItems.length) {
+                status.textContent = "No projects found."
+                return
+            }
+            let items = filteredItems()
+            status.textContent = `${allItems.length} project${allItems.length === 1 ? "" : "s"}` +
+                (items.length !== allItems.length ? ` · ${items.length} shown` : "")
+            items.forEach((it) => {
+                let c = makeCard(it)
+                grid.appendChild(c)
+                cardById.set(it.id, c)
+            })
+        }
+        let selectAllShown = (on) => {
+            filteredItems().forEach((it) => {
+                if (on) selected.add(it.id)
+                else selected.delete(it.id)
+                let c = cardById.get(it.id)
+                if (c) applySelStyle(c, on)
+            })
+            updateSelCount()
+        }
+        let bulk = (format) => {
+            let chosen = allItems.filter((it) => selected.has(it.id))
+            if (!chosen.length) {
+                alert("No projects selected")
+                return
+            }
+            let jobs = chosen.map((it) => ({
+                url: designDownloadUrl(it.id, format),
+                filename: `${downloadFolder(it.className || "TinkerCAD")}/${downloadFileBase(it.student, it.name)}.${downloadExt(format)}`
+            }))
+            downloadBatch(jobs)
+        }
+
+        // ── Header controls ─────────────────────────────────────────
+        header.appendChild(bigButton("Back", () => {
+            currentPage = prevPage
+            disableView("printer")
+        }))
+        header.appendChild(titleEl)
+        header.appendChild(filterInput)
+        header.appendChild(bigButton("Select all", () => selectAllShown(true)))
+        header.appendChild(bigButton("Clear", () => selectAllShown(false)))
+        header.appendChild(bigButton("Download STL", () => bulk("stl")))
+        header.appendChild(bigButton("Download OBJ", () => bulk("obj")))
+        let sizeBtns = []
+        let setSize = (idx) => {
+            sizeIdx = idx
+            sizeBtns.forEach((b, k) => {
+                b.style.backgroundColor = k === idx ? "#4076c7" : "#fff"
+                b.style.color = k === idx ? "#fff" : "#4076c7"
+            })
+            renderGrid()
+        }
+        ;["S", "M", "L"].forEach((t, idx) => {
+            let b = bigButton(t, () => setSize(idx))
+            sizeBtns.push(b)
+            header.appendChild(b)
+        })
+        sizeBtns[0].style.backgroundColor = "#4076c7"
+        sizeBtns[0].style.color = "#fff"
+        header.appendChild(selCount)
+        filterInput.addEventListener("input", () => renderGrid())
+        updateSelCount()
+
+        // ── Load all classes, then render ───────────────────────────
+        status.textContent = "Loading projects…"
+        updateStorage(() => getGalleryProjects((items) => {
+            allItems = items || []
+            renderGrid()
+        }))
+    }, () => {
+    })
+}
 let galleryViewEnable = (projects = null) => {
     let prevPage = currentPage
     return enableView("gallery", (container) => {
@@ -1001,9 +1158,6 @@ let galleryViewEnable = (projects = null) => {
         let mode = "image" // "image" | "3d"
         let list = []
         let i = 0
-
-        if (!projects)
-            updateStorage()
 
         // ── Top progress bar (counts down to the next slide) ────────
         let progress = document.createElement("div")
@@ -1193,7 +1347,12 @@ let galleryViewEnable = (projects = null) => {
         if (projects) {
             begin(projects)
         } else {
-            getGalleryProjects(begin)
+            // Opened from the classes dashboard (no list): load the whole school
+            // first, then collect every project. Show a loading state meanwhile.
+            title.innerText = "Loading…"
+            empty.style.display = "block"
+            empty.innerText = "Loading projects…"
+            updateStorage(() => getGalleryProjects(begin))
         }
     }, () => {
     })
@@ -1608,7 +1767,6 @@ let main = () => {
     onElementLoad(".left-actions", "prints", (container) => {
         let elem = smallButton2("Print Manager", () => {
             printerViewEnable()
-            sasPrintListForProjects(["1", "ac"])
         })
         container.querySelector("#newClassButton").insertAdjacentElement('afterend', elem)
 
