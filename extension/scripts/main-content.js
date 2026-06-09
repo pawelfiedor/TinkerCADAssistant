@@ -267,21 +267,6 @@ let get = (id, onComplete) => {
 
     })
 }
-/**
- * Update class fully before then retrieving it
- * @param id
- * @param onComplete
- */
-let sasGet = (id, onComplete) => {
-    sasAllDataForClass(id, () => {
-        get(id, onComplete)
-    }, true)
-}
-let sasGetForActivity = (clazz, activity, onComplete, force = true) => {
-    sasAllDataForClassActivity(clazz, activity, () => {
-        get(clazz, onComplete)
-    }, force)
-}
 
 
 /**
