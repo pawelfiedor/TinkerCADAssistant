@@ -825,7 +825,7 @@ let sasGetProjectsOfActivity = (clazz, activity, onComplete = () => {
                     if (!id) continue
                     data.activities[activity].projects[id] = {
                         id: id,
-                        name: design.description || design.name || design.title || `Projekt ${id}`,
+                        name: design.description || design.name || design.title || `Project ${id}`,
                         author: String(design.user_id || design.userId || ""),
                         tags: design.asm_tags || null,
                         printDescription: design.asm_description || null,
