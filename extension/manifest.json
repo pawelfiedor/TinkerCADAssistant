@@ -13,9 +13,8 @@
     "storage"
   ],
   "host_permissions": [
-    "https://www.tinkercad.com/*",
-    "https://api-reader-prd.tinkercad.com/*",
-    "https://csg-prd.tinkercad.com/*"
+    "https://*.tinkercad.com/*",
+    "https://*.amazonaws.com/*"
   ],
   "description": "Add the tinkercad assistant to aid you with managing classrooms in tinkercad",
   "content_scripts": [
