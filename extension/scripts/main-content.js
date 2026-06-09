@@ -118,20 +118,35 @@ let resolveDownloadTarget = (id, name, onReady) => {
             return
         }
         // Class-level designs page (/classrooms/{id}/designs) — no activity in the
-        // URL, so resolve the project name + owner straight from the design detail.
+        // URL. Load the whole class (students + all activity designs) and find
+        // this design by id, reusing the proven proj.name path from the activity
+        // page. Fall back to the single-design detail endpoint if it isn't tied
+        // to a stored activity (e.g. a teacher template).
         let clazzID = classMatch[1]
-        sasStudentsAndClassCodeOf(clazzID, () => {
+        sasAllDataForClass(clazzID, () => {
             get(clazzID, (clazz) => {
                 let folder = downloadFolder((clazz && clazz.name) || "TinkerCAD")
+                let proj = null
+                for (const act of Object.values((clazz && clazz.activities) || {})) {
+                    if (act.projects && act.projects[id]) {
+                        proj = act.projects[id]
+                        break
+                    }
+                }
+                if (proj) {
+                    let student = (clazz.students || {})[proj.author]
+                    let username = student ? student.name : proj.author
+                    onReady(folder, downloadFileBase(username, proj.name))
+                    return
+                }
                 tcApi.design(id).then((d) => {
-                    let projectName = (d && (d.description || d.name || d.title)) || name
-                    let author = String((d && (d.user_id || d.userId)) || (d && d.owner && d.owner.id) || "")
-                    let student = clazz && clazz.students && clazz.students[author]
-                    let username = student ? student.name : null
-                    onReady(folder, username ? downloadFileBase(username, projectName) : sanitizeName(projectName))
+                    console.log("[tcApi.design] not in stored activities; raw detail:", d)
+                    let projectName = (d && (d.description || d.name || d.title ||
+                        (d.thing && (d.thing.description || d.thing.name)))) || name
+                    onReady(folder, sanitizeName(projectName))
                 }).catch(() => onReady(folder, sanitizeName(name)))
             })
-        })
+        }, false)
         return
     }
     let clazzID = activityMatch[1]
