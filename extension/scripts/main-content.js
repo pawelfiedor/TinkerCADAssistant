@@ -1005,27 +1005,57 @@ let galleryViewEnable = (projects = null) => {
     return enableView("gallery", (container) => {
         currentPage = Context.GALLERY
         let active = true
+        let paused = false
+        let mode = "image" // "image" | "3d"
+        let list = []
+        let i = 0
+
         if (!projects)
             updateStorage()
 
+        // ── Header bar ──────────────────────────────────────────────
+        let bar = document.createElement("div")
+        Object.assign(bar.style, {
+            display: "flex", alignItems: "center", gap: "10px",
+            height: "8vh", padding: "0 12px", boxSizing: "border-box",
+            fontFamily: "Open Sans, Helvetica, Arial, sans-serif"
+        })
+        let labels = document.createElement("div")
+        Object.assign(labels.style, {flex: "1", minWidth: "0", overflow: "hidden"})
+        let title = document.createElement("div")
+        Object.assign(title.style, {fontSize: "20px", fontWeight: "700", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"})
+        let subtitle = document.createElement("div")
+        Object.assign(subtitle.style, {fontSize: "13px", color: "#666", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"})
+        labels.appendChild(title)
+        labels.appendChild(subtitle)
+        let counter = document.createElement("span")
+        Object.assign(counter.style, {fontSize: "13px", color: "#666", minWidth: "60px", textAlign: "center"})
+
+        // ── Display stage ───────────────────────────────────────────
+        let stage = document.createElement("div")
+        Object.assign(stage.style, {
+            width: "100vw", height: "92vh", display: "flex",
+            alignItems: "center", justifyContent: "center",
+            background: "#f4f4f4", overflow: "hidden"
+        })
+        let img = document.createElement("img")
+        Object.assign(img.style, {maxWidth: "100%", maxHeight: "100%", objectFit: "contain"})
         let frame = document.createElement("iframe")
-        let h1 = document.createElement("h2")
-        h1.style.height = "5vh"
-        h1.style.width = "100vw"
-        h1.style.dir = "auto"
+        Object.assign(frame.style, {width: "100vw", height: "92vh", border: "none", display: "none"})
+        let empty = document.createElement("div")
+        Object.assign(empty.style, {color: "#999", fontSize: "16px", display: "none"})
+        stage.appendChild(img)
+        stage.appendChild(frame)
+        stage.appendChild(empty)
 
-        container.appendChild(h1)
-        container.appendChild(frame)
+        container.appendChild(bar)
+        container.appendChild(stage)
 
-        let setFrame = (id, name) => {
-            frame.src = `https://www.tinkercad.com/things/${id}/edit`
-            if (contains_heb(name)) {
-                h1.style.textAlign = "right"
-            } else h1.style.textAlign = "left"
-            h1.innerText = name
+        let set3dFrame = (p) => {
+            frame.src = `https://www.tinkercad.com/things/${p.id}/edit`
             awaitResult(() => {
                 let doc = frame.contentDocument
-                if (active && currentPage === Context.GALLERY && doc) {
+                if (active && mode === "3d" && currentPage === Context.GALLERY && doc) {
                     return doc.querySelector("#viewcube-home-button")
                 }
                 return false
@@ -1036,82 +1066,140 @@ let galleryViewEnable = (projects = null) => {
                 doc.querySelector(".editor__topnav")?.remove()
                 doc.querySelector(".hud")?.remove()
                 let canvas = doc.querySelector("canvas")
-                if (canvas) canvas.style.width = "100vw"
-                frame.style.height = "95vh"
-            }, 300, () => !active)
+                if (canvas) canvas.style.width = "100%"
+            }, 300, () => !active || mode !== "3d")
         }
-        frame.style.width = "100vw"
-        frame.style.height = "95vh"
-        let i = 1
 
-        let loop = (list) => {
+        let render = () => {
+            if (!list.length) {
+                img.style.display = "none"
+                frame.style.display = "none"
+                empty.style.display = "block"
+                empty.innerText = "No projects to show"
+                counter.innerText = ""
+                title.innerText = ""
+                subtitle.innerText = ""
+                return
+            }
+            let p = list[i]
+            title.innerText = p.name || "(untitled)"
+            title.style.direction = contains_heb(p.name || "") ? "rtl" : "ltr"
+            subtitle.innerText = [p.student, p.className].filter(Boolean).join(" · ")
+            counter.innerText = `${i + 1} / ${list.length}`
+            if (mode === "3d") {
+                img.style.display = "none"
+                empty.style.display = "none"
+                frame.style.display = "block"
+                set3dFrame(p)
+            } else {
+                frame.style.display = "none"
+                frame.src = "about:blank" // unload the heavy editor
+                if (p.thumb) {
+                    empty.style.display = "none"
+                    img.style.display = "block"
+                    img.src = p.thumb
+                    img.alt = p.name || ""
+                } else {
+                    img.style.display = "none"
+                    empty.style.display = "block"
+                    empty.innerText = "No thumbnail — use the 3D button"
+                }
+            }
+        }
+
+        let updatePauseLabel = () => {
+            pauseBtn.textContent = paused ? "Play" : "Pause"
+        }
+        let goTo = (idx, manualPause) => {
+            if (!list.length) return
+            i = (idx % list.length + list.length) % list.length
+            if (manualPause) paused = true
+            render()
+            updatePauseLabel()
+        }
+
+        let loop = () => {
             chrome.storage.local.get(["speed"], (data) => {
                 let speed = (data && data.speed != null) ? 6 - Number(data.speed) : 3
                 setTimeout(() => {
                     if (!active || currentPage !== Context.GALLERY) return
-                    if (list.length <= i) i = 0
-                    setFrame(list[i].id, list[i].name)
-                    i++
-                    loop(list)
+                    if (!paused && list.length) {
+                        i = (i + 1) % list.length
+                        render()
+                    }
+                    loop()
                 }, speed * 10000)
             })
         }
 
-        let start = (list) => {
-            if (!list || list.length === 0) {
-                h1.innerText = "No projects to show"
-                return
-            }
-            setFrame(list[0].id, list[0].name)
-            loop(list)
-        }
+        // ── Controls ────────────────────────────────────────────────
+        let pauseBtn = bigButton("Pause", () => {
+            paused = !paused
+            updatePauseLabel()
+        })
+        let modeBtn = bigButton("3D", () => {
+            mode = mode === "3d" ? "image" : "3d"
+            modeBtn.textContent = mode === "3d" ? "Image" : "3D"
+            render()
+        })
 
-        if (projects) {
-            start(projects)
-        } else {
-            getGalleryProjects((list) => start(list))
-        }
-
-        container.appendChild(bigButton("Back", () => {
+        bar.appendChild(bigButton("Back", () => {
             active = false
             currentPage = prevPage
             disableView("gallery")
         }))
+        bar.appendChild(labels)
+        bar.appendChild(counter)
+        bar.appendChild(bigButton("◀", () => goTo(i - 1, true)))
+        bar.appendChild(pauseBtn)
+        bar.appendChild(bigButton("▶", () => goTo(i + 1, true)))
+        bar.appendChild(modeBtn)
+
+        let begin = (items) => {
+            list = items || []
+            i = 0
+            render()
+            loop()
+        }
+        if (projects) {
+            begin(projects)
+        } else {
+            getGalleryProjects(begin)
+        }
     }, () => {
     })
 }
+/** Shape a stored project into a gallery item with student + class labels. */
+let toGalleryItem = (project, clazz) => ({
+    id: project.id,
+    name: project.name,
+    thumb: project.thumb || null,
+    student: (((clazz && clazz.students) || {})[project.author] || {}).name || null,
+    className: (clazz && clazz.name) || null
+})
+
 let getGalleryProjects = (onComplete) => {
-    let projects = []
+    let items = []
     let i = 0
-    getKeys((keys => {
+    getKeys((keys) => {
+        if (!keys.length) {
+            onComplete([])
+            return
+        }
         for (const clazzID of keys) {
             get(clazzID, (clazz) => {
-
-                let students = []
-                for (const student of Object.values(clazz.students || {})) {
-                    if (student.badgeCount !== "0" && student.badgeCount !== null && student.badgeCount !== undefined) {
-                        students.push(student.id)
-                    }
-                }
-                for (const activity of Object.values(clazz.activities || {})) {
+                for (const activity of Object.values((clazz && clazz.activities) || {})) {
                     for (const project of Object.values(activity.projects || {})) {
-                        if (students.includes(project.author)) {
-                            projects.push(project)
-
-                        }
-
+                        items.push(toGalleryItem(project, clazz))
                     }
                 }
-                //Hey there, since this whole thing is async, this needs to be done here :) Not outsideo f hte get(method) since this just has a callback and the rest continues onward :)
+                // Async: must finish inside the get() callback, not outside it.
                 if (++i >= keys.length) {
-                    onComplete(projects)
+                    onComplete(items)
                 }
             })
-
         }
-
-    }))
-
+    })
 }
 
 
@@ -1482,13 +1570,13 @@ let main = () => {
     onElementLoad(".class-projects-list-toolbar", "gallery", (container) => {
         let elem = bigButton("Gallery", () => {
             getCurrentClazz((clazz) => {
-                let projects = []
-                for (const activities of Object.values(clazz.activities)) {
-                    for (const project of Object.values(activities.projects)) {
-                        projects.push(project)
+                let items = []
+                for (const activities of Object.values((clazz && clazz.activities) || {})) {
+                    for (const project of Object.values(activities.projects || {})) {
+                        items.push(toGalleryItem(project, clazz))
                     }
                 }
-                galleryViewEnable(projects)
+                galleryViewEnable(items)
             })
 
 
@@ -1508,8 +1596,12 @@ let main = () => {
         }))
 
         elem.appendChild(bigButton("Gallery", () => {
-            getCurrentActivity((activity) => {
-                galleryViewEnable(Object.values(activity.projects))
+            getCurrentActivityAndClassID((clazzID, activityID) => {
+                get(clazzID, (clazz) => {
+                    let act = ((clazz && clazz.activities) || {})[activityID] || {}
+                    let items = Object.values(act.projects || {}).map((p) => toGalleryItem(p, clazz))
+                    galleryViewEnable(items)
+                })
             })
         }))
 
