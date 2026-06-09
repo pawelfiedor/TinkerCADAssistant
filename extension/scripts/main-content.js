@@ -1074,6 +1074,9 @@ let printerViewEnable = () => {
         let SIZES = [180, 260, 360]
         let sizeIdx = 0
         let groupByClass = true
+        let oneStudentPerPageCheckbox = document.createElement("input")
+        oneStudentPerPageCheckbox.type = "checkbox"
+        oneStudentPerPageCheckbox.style.cursor = "pointer"
 
         // ── Header ──────────────────────────────────────────────────
         let header = document.createElement("div")
@@ -1312,57 +1315,115 @@ let printerViewEnable = () => {
                 }
             }
 
-            // Group projects by class name
-            let groups = new Map()
-            chosen.forEach((it) => {
-                let key = it.className || "(unknown class)"
-                if (!groups.has(key)) {
-                    groups.set(key, [])
-                }
-                groups.get(key).push(it)
-            })
-
+            let oneStudentPerPage = oneStudentPerPageCheckbox.checked
             let sectionsHtml = ""
-            groups.forEach((items, className) => {
-                let cardsHtml = items.map((it) => {
-                    let dateStr = formatDate(it.mtime)
-                    let imgHtml = ""
-                    if (it.thumb) {
-                        imgHtml = `<img src="${it.thumb}" alt="" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">`
+            let groupsCount = 0
+
+            if (oneStudentPerPage) {
+                // Group projects by student (student Name + class Name)
+                let studentGroups = new Map()
+                chosen.forEach((it) => {
+                    let key = `${it.student || "(unknown)"} · ${it.className || "(unknown class)"}`
+                    if (!studentGroups.has(key)) {
+                        studentGroups.set(key, {student: it.student, className: it.className, items: []})
                     }
-                    return `
-                    <div class="card">
-                        <div class="thumb-wrap">
-                            ${imgHtml}
-                            <span style="display: ${it.thumb ? 'none' : 'block'};">🧊</span>
-                        </div>
-                        <div class="info">
-                            <div>
-                                <h2 class="student">${escapeHtml(it.student || '(unknown)')}</h2>
-                                <div class="details"><strong>Project:</strong> ${escapeHtml(it.name || '(untitled)')}</div>
+                    studentGroups.get(key).items.push(it)
+                })
+                groupsCount = studentGroups.size
+
+                studentGroups.forEach((groupData, key) => {
+                    let cardsHtml = groupData.items.map((it) => {
+                        let dateStr = formatDate(it.mtime)
+                        let imgHtml = ""
+                        if (it.thumb) {
+                            imgHtml = `<img src="${it.thumb}" alt="" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">`
+                        }
+                        return `
+                        <div class="card">
+                            <div class="thumb-wrap">
+                                ${imgHtml}
+                                <span style="display: ${it.thumb ? 'none' : 'block'};">🧊</span>
                             </div>
-                            <div>
-                                <div class="date">Modified: ${dateStr}</div>
-                                <div class="checklist">
-                                    <span><span class="chk-box"></span>Printed</span>
-                                    <span><span class="chk-box"></span>Verified</span>
-                                    <span style="display: flex; flex-grow: 1; align-items: center;">Notes:<span class="notes-line"></span></span>
+                            <div class="info">
+                                <div>
+                                    <h2 class="student">${escapeHtml(it.student || '(unknown)')}</h2>
+                                    <div class="details"><strong>Project:</strong> ${escapeHtml(it.name || '(untitled)')}</div>
+                                </div>
+                                <div>
+                                    <div class="date">Modified: ${dateStr}</div>
+                                    <div class="checklist">
+                                        <span><span class="chk-box"></span>Printed</span>
+                                        <span><span class="chk-box"></span>Verified</span>
+                                        <span style="display: flex; flex-grow: 1; align-items: center;">Notes:<span class="notes-line"></span></span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
+                        `
+                    }).join("")
+
+                    sectionsHtml += `
+                    <div class="student-section student-page-break">
+                        <h2 class="class-header">${escapeHtml(groupData.student || '(unknown)')} (${escapeHtml(groupData.className || '(unknown class)')})</h2>
+                        <div class="grid">
+                            ${cardsHtml}
+                        </div>
                     </div>
                     `
-                }).join("")
+                })
+            } else {
+                // Group projects by class name
+                let groups = new Map()
+                chosen.forEach((it) => {
+                    let key = it.className || "(unknown class)"
+                    if (!groups.has(key)) {
+                        groups.set(key, [])
+                    }
+                    groups.get(key).push(it)
+                })
+                groupsCount = groups.size
 
-                sectionsHtml += `
-                <div class="class-section">
-                    <h2 class="class-header">${escapeHtml(className)} (${items.length})</h2>
-                    <div class="grid">
-                        ${cardsHtml}
+                groups.forEach((items, className) => {
+                    let cardsHtml = items.map((it) => {
+                        let dateStr = formatDate(it.mtime)
+                        let imgHtml = ""
+                        if (it.thumb) {
+                            imgHtml = `<img src="${it.thumb}" alt="" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">`
+                        }
+                        return `
+                        <div class="card">
+                            <div class="thumb-wrap">
+                                ${imgHtml}
+                                <span style="display: ${it.thumb ? 'none' : 'block'};">🧊</span>
+                            </div>
+                            <div class="info">
+                                <div>
+                                    <h2 class="student">${escapeHtml(it.student || '(unknown)')}</h2>
+                                    <div class="details"><strong>Project:</strong> ${escapeHtml(it.name || '(untitled)')}</div>
+                                </div>
+                                <div>
+                                    <div class="date">Modified: ${dateStr}</div>
+                                    <div class="checklist">
+                                        <span><span class="chk-box"></span>Printed</span>
+                                        <span><span class="chk-box"></span>Verified</span>
+                                        <span style="display: flex; flex-grow: 1; align-items: center;">Notes:<span class="notes-line"></span></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        `
+                    }).join("")
+
+                    sectionsHtml += `
+                    <div class="student-section">
+                        <h2 class="class-header">${escapeHtml(className)} (${items.length})</h2>
+                        <div class="grid">
+                            ${cardsHtml}
+                        </div>
                     </div>
-                </div>
-                `
-            })
+                    `
+                })
+            }
 
             let html = `
 <!DOCTYPE html>
@@ -1396,7 +1457,7 @@ let printerViewEnable = () => {
             color: #64748b;
             text-align: right;
         }
-        .class-section {
+        .student-section {
             margin-bottom: 32px;
             page-break-inside: auto;
             break-inside: auto;
@@ -1511,6 +1572,14 @@ let printerViewEnable = () => {
                 page-break-inside: avoid;
                 break-inside: avoid;
             }
+            .student-page-break {
+                page-break-after: always;
+                break-after: page;
+            }
+            .student-page-break:last-of-type {
+                page-break-after: avoid;
+                break-after: avoid;
+            }
         }
     </style>
 </head>
@@ -1518,7 +1587,9 @@ let printerViewEnable = () => {
     <header>
         <div>
             <h1>TinkerCAD Print Verification Report</h1>
-            <div style="font-size: 13px; color: #475569; margin-top: 4px;">Selected Groups: ${groups.size} · Total Projects: ${chosen.length}</div>
+            <div style="font-size: 13px; color: #475569; margin-top: 4px;">
+                ${oneStudentPerPage ? `Total Students: ${groupsCount}` : `Selected Groups: ${groupsCount}`} · Total Projects: ${chosen.length}
+            </div>
         </div>
         <div class="meta">
             <div>Date: ${new Date().toLocaleDateString("pl-PL")}</div>
@@ -1561,7 +1632,18 @@ let printerViewEnable = () => {
         header.appendChild(bigButton("Clear", () => clearAll()))
         header.appendChild(bigButton("Download STL", () => bulk("stl")))
         header.appendChild(bigButton("Download OBJ", () => bulk("obj")))
-        header.appendChild(bigButton("Print Report", () => printReport()))
+        
+        let printReportBtn = bigButton("Print Report", () => printReport())
+        let printOptContainer = document.createElement("label")
+        Object.assign(printOptContainer.style, {
+            display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", 
+            color: "#475569", cursor: "pointer", userSelect: "none"
+        })
+        printOptContainer.appendChild(oneStudentPerPageCheckbox)
+        printOptContainer.appendChild(document.createTextNode("1 uczeń / strona"))
+        
+        header.appendChild(printReportBtn)
+        header.appendChild(printOptContainer)
         let sizeBtns = []
         let setSize = (idx) => {
             sizeIdx = idx
