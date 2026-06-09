@@ -3264,7 +3264,20 @@ let main = () => {
     easyTools(Context.GENERAL)
     easyTools(Context.ACTIVITY)
 
-    onElementLoad(".class-projects-list-toolbar", "gallery", (container) => {
+    onElementLoad("tk-assignments-list", "gallery", (container) => {
+        if (container.querySelector("#tcaGalleryBtn")) return
+
+        let toolbar = container.querySelector(".class-projects-list-toolbar")
+        if (!toolbar) {
+            toolbar = document.createElement("div")
+            toolbar.className = "class-projects-list-toolbar"
+            Object.assign(toolbar.style, {
+                display: "flex", gap: "8px", marginBottom: "16px", flexWrap: "wrap",
+                alignItems: "center", width: "100%"
+            })
+            container.insertAdjacentElement("afterbegin", toolbar)
+        }
+
         let elem = bigButton("Gallery", () => {
             getCurrentClazz((clazz) => {
                 let items = []
@@ -3275,19 +3288,18 @@ let main = () => {
                 }
                 galleryViewEnable(items)
             })
-
-
         })
+        elem.id = "tcaGalleryBtn"
+        elem.style.marginLeft = "5px"
+
         let elemAnalytics = bigButton("Analytics", () => {
             analyticsViewEnable()
         })
-        let header = document.querySelector(".class-projects-list-toolbar")
-        header.style.display = "flex"
-        elem.style.marginLeft = "5px"
+        elemAnalytics.id = "tcaAnalyticsBtn"
         elemAnalytics.style.marginLeft = "5px"
-        header.appendChild(elem)
-        header.appendChild(elemAnalytics)
 
+        toolbar.appendChild(elem)
+        toolbar.appendChild(elemAnalytics)
 
     }, 500, Context.ACTIVITIES)
 
