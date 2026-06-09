@@ -2272,18 +2272,22 @@ let printerViewEnable = () => {
     
     ${sectionsHtml}
 
-    <script>
-        window.addEventListener('load', () => {
-            setTimeout(() => {
-                window.print();
-            }, 600);
-        });
-    <\/script>
 </body>
 </html>
             `
             win.document.write(html)
             win.document.close()
+
+            let triggerPrint = () => {
+                setTimeout(() => {
+                    win.print()
+                }, 600)
+            }
+            if (win.document.readyState === "complete") {
+                triggerPrint()
+            } else {
+                win.addEventListener('load', triggerPrint)
+            }
         }
 
         let printReportPerStudent = () => {
@@ -2475,18 +2479,22 @@ let printerViewEnable = () => {
     
     ${sectionsHtml}
 
-    <script>
-        window.addEventListener('load', () => {
-            setTimeout(() => {
-                window.print();
-            }, 600);
-        });
-    <\/script>
 </body>
 </html>
             `
             win.document.write(html)
             win.document.close()
+
+            let triggerPrint = () => {
+                setTimeout(() => {
+                    win.print()
+                }, 600)
+            }
+            if (win.document.readyState === "complete") {
+                triggerPrint()
+            } else {
+                win.addEventListener('load', triggerPrint)
+            }
         }
 
         // ── Header controls ─────────────────────────────────────────
