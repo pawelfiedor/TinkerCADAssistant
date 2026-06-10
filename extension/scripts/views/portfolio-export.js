@@ -9,8 +9,10 @@ let generateOfflineIndexHtml = (className, projects) => {
     let sectionsHtml = ""
     studentMap.forEach((items, student) => {
         let cards = items.map(it => {
-            let imgHtml = it.thumbFilename ? `<img src="./${encodeURIComponent(it.thumbFilename)}" alt="${escapeHtml(it.name)}">` : `<div class="fallback-img">🧊</div>`
-            let stlLink = it.stlFilename ? `<a class="btn" href="./${encodeURIComponent(it.stlFilename)}" download>Download STL</a>` : ""
+            let imgPath = it.thumbFilename ? it.thumbFilename.split('/').map(encodeURIComponent).join('/') : "";
+            let stlPath = it.stlFilename ? it.stlFilename.split('/').map(encodeURIComponent).join('/') : "";
+            let imgHtml = it.thumbFilename ? `<img src="./${imgPath}" alt="${escapeHtml(it.name)}">` : `<div class="fallback-img">🧊</div>`
+            let stlLink = it.stlFilename ? `<a class="btn" href="./${stlPath}" download>Download STL</a>` : ""
             return `
             <div class="card">
                 <div class="thumb-wrap">
