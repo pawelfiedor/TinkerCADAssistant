@@ -152,11 +152,20 @@ TinkerCAD Assistant uses TinkerCAD's internal/undocumented API and UI, so an
 upstream change by Autodesk can temporarily break a feature. It is an
 independent project and is **not affiliated with or endorsed by Autodesk**.
 
-## Credits
+## Attribution
 
-Developed by **Ezra Golombek**. Contributions and bug reports welcome via
-[issues](https://github.com/pawelfiedor/TinkerCADAssistant/issues).
+This repository is a **fork of [shmezi/TinkerCADAssistant](https://github.com/shmezi/TinkerCADAssistant)**,
+the original project created by **Ezra Golombek**, who also publishes the
+[original extension on the Chrome Web Store](https://chromewebstore.google.com/detail/tinkercad-assistant/eliikkeilljmpemlohjmcingikpjkjpc).
+The original code remains the copyright of its author. This fork adds further
+features and is maintained by [@pawelfiedor](https://github.com/pawelfiedor).
 Contact: `Ezragolombek.main@gmail.com`.
 
-No license file is included yet — until one is added, all rights are reserved by
-the authors; please open an issue if you'd like to reuse the code.
+## License
+
+The upstream project does **not include a license file**, which under copyright
+law means **all rights are reserved by the original author**. Consequently this
+fork carries no license of its own: the code here may not be reused,
+redistributed, or published as a separate extension **without the original
+author's permission**. If you would like to use it, please contact the original
+author first.
