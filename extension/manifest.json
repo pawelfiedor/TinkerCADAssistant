@@ -22,6 +22,19 @@
       "run_at": "document_end",
       "js": [
         "scripts/tc-api.js",
+        "scripts/lib/utils.js",
+        "scripts/lib/zip-writer.js",
+        "scripts/lib/storage.js",
+        "scripts/lib/toasts.js",
+        "scripts/lib/ui-buttons.js",
+        "scripts/lib/page-watcher.js",
+        "scripts/data/scraper.js",
+        "scripts/views/view-manager.js",
+        "scripts/views/portfolio-export.js",
+        "scripts/views/analytics-view.js",
+        "scripts/views/printer-view.js",
+        "scripts/views/gallery-view.js",
+        "scripts/views/teacher-view.js",
         "scripts/main-content.js"
       ],
       "css": [
