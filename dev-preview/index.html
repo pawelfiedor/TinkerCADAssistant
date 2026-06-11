@@ -69,12 +69,14 @@
         let tagSamples = ["", "to-print", "to-print,verified", "printed", "printed,handed,competition", "verified"]
         for (let k = 0; k < 7 + ci * 2; k++) {
             let id = `p${i}`
+            let mtime = now - (i % 3) * 86400000 - (i % 9 === 8 ? 12 * 86400000 : 0)
             projects[id] = {
                 id,
                 name: `${projectNames[i % projectNames.length]} v${k + 1}`,
                 author: `u${i % studentNames.length}`,
                 thumb: (i % 5 === 4) ? null : svgThumb((i * 47) % 360),
-                mtime: now - (i % 3) * 86400000 - (i % 9 === 8 ? 12 * 86400000 : 0),
+                mtime,
+                btime: mtime - (i % 5) * 5 * 86400000 - 3600000,
                 tags: tagSamples[i % tagSamples.length],
                 printDescription: i % 3 === 0 ? "PLA 0.2 mm, 20% infill" : ""
             }

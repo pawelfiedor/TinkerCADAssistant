@@ -245,6 +245,15 @@ let printerViewEnable = () => {
             xBtn.onclick = () => closeEditor()
             head.append(titleLink, el("span", "tca-spacer"), xBtn)
             let sub = el("div", "tca-modal-sub", [it.student, it.className].filter(Boolean).join(" · "))
+            let metaBits = []
+            if (it.btime) metaBits.push(`Created ${formatDate(it.btime)}`)
+            if (it.mtime) metaBits.push(`modified ${formatDate(it.mtime)}`)
+            let createdMs = toMillis(it.btime)
+            let modifiedMs = toMillis(it.mtime)
+            let worked = (createdMs != null && modifiedMs != null) ? humanizeSpan(modifiedMs - createdMs) : null
+            if (worked) metaBits.push(`~${worked} of work`)
+            let meta = el("div", "tca-modal-meta", metaBits.join(" · "))
+            if (!metaBits.length) meta.style.display = "none"
 
             let statusField = el("div", "tca-field")
             statusField.appendChild(el("span", "tca-field-label", "Status"))
@@ -303,7 +312,7 @@ let printerViewEnable = () => {
             }
             foot.append(cancelBtn, saveBtn)
 
-            editorCard.append(head, sub, statusField, descField, tagsField, foot)
+            editorCard.append(head, sub, meta, statusField, descField, tagsField, foot)
             editor.classList.add("is-open")
 
             // Background refresh: tags may have changed in TinkerCAD's own
@@ -380,6 +389,15 @@ let printerViewEnable = () => {
                 return "N/A"
             }
         }
+        // Compact card variant: "11.06", with a 2-digit year only when it
+        // differs from the current one. Full dates live in the tooltip.
+        let formatDateShort = (mtime) => {
+            let ms = toMillis(mtime)
+            if (ms == null) return ""
+            let d = new Date(ms)
+            let dd = `${d.getDate()}.${String(d.getMonth() + 1).padStart(2, "0")}`
+            return d.getFullYear() === new Date().getFullYear() ? dd : `${dd}.${String(d.getFullYear()).slice(2)}`
+        }
 
         let makeCard = (it) => {
             let card = el("div", "tca-card")
@@ -421,14 +439,23 @@ let printerViewEnable = () => {
                 classLink.title = "Open the class page in a new tab"
                 classLink.onclick = (e) => e.stopPropagation()
             }
-            let foot = el("div", "tca-card-foot")
-            foot.append(classLink, el("span", "tca-card-date", it.mtime ? formatDate(it.mtime) : ""))
+            // Date + work span on their own line, so a long class name can
+            // never squeeze them out of view.
+            let createdMs = toMillis(it.btime)
+            let modifiedMs = toMillis(it.mtime)
+            let worked = (createdMs != null && modifiedMs != null) ? humanizeSpan(modifiedMs - createdMs) : null
+            let dateEl = el("div", "tca-card-date",
+                it.mtime ? (worked ? `${formatDateShort(it.mtime)} · ${worked}` : formatDateShort(it.mtime)) : "")
+            if (createdMs != null) {
+                dateEl.title = `Created ${formatDate(it.btime)} · last modified ${formatDate(it.mtime)} · ~${worked || "<1 h"} of work`
+            }
             let chipsCtl = tcaLiveStatusChips(it, {compact: true})
             cardChips.set(it.id, chipsCtl)
             body.append(
                 el("div", "tca-card-student", it.student || "(unknown)"),
                 projLink,
-                foot,
+                classLink,
+                dateEl,
                 chipsCtl.el
             )
 

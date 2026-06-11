@@ -105,7 +105,11 @@ let projectIDRegex = /\/things\/(.{11})/gm
 let sasGetProjectsOfActivity = (clazz, activity, onComplete = () => {
 }, force = false) => {
     get(clazz, (data) => {
-        if (data && data.activities && data.activities[activity] && data.activities[activity].projects && !force) {
+        let projs = data && data.activities && data.activities[activity] && data.activities[activity].projects
+        // Cache entries written before the btime field existed lack the key
+        // entirely (vs. null = fetched but absent) — refresh those once.
+        let needsBackfill = projs && Object.values(projs).some((p) => p.btime === undefined)
+        if (projs && !needsBackfill && !force) {
             onComplete()
             console.log("All activities are up to date!")
             return
@@ -129,7 +133,8 @@ let sasGetProjectsOfActivity = (clazz, activity, onComplete = () => {
                         thumb: (design.thumbnail_json && (
                             (design.thumbnail_json.detailThumb && design.thumbnail_json.detailThumb.url) ||
                             (design.thumbnail_json.filmstrip && design.thumbnail_json.filmstrip.url))) || null,
-                        mtime: design.mtime || null
+                        mtime: design.mtime || null,
+                        btime: design.btime || null
                     }
                 }
             }, onComplete)

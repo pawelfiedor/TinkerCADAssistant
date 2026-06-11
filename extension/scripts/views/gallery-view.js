@@ -10,7 +10,8 @@ let galleryViewEnable = (projects = null) => {
         let active = true
         let paused = false
         let mode = "image" // "image" | "3d"
-        let list = []
+        let allList = []   // every loaded project
+        let list = []      // after the status filter
         let i = 0
         let el = tcaEl
 
@@ -31,6 +32,18 @@ let galleryViewEnable = (projects = null) => {
         let subtitle = el("div", "tca-slide-sub")
         labels.append(title, subtitle)
         let counter = el("span", "tca-pill", "–")
+        // Show only projects carrying a given workflow status.
+        let filterSelect = el("select", "tca-select")
+        ;[["any", "Status: any"]]
+            .concat(TCA_STATUS_TAGS.map((st) => [st.tag, `Status: ${st.label}`]))
+            .concat([["none", "Status: none"]])
+            .forEach(([v, t]) => {
+                let o = document.createElement("option")
+                o.value = v
+                o.textContent = t
+                filterSelect.appendChild(o)
+            })
+        filterSelect.value = "any"
         // Workflow status of the current slide — click a chip to toggle it.
         let statusCtl = tcaStatusChips({
             onToggle: (st, ctl) => {
@@ -84,7 +97,7 @@ let galleryViewEnable = (projects = null) => {
         })
         modeBtns[0].classList.add("is-active")
 
-        topbar.append(backBtn, el("span", "tca-vsep"), labels, statusCtl.el, counter, transport, el("span", "tca-vsep"), seg)
+        topbar.append(backBtn, el("span", "tca-vsep"), labels, filterSelect, statusCtl.el, counter, transport, el("span", "tca-vsep"), seg)
 
         // ── Progress line (counts down to the next slide) ───────────
         let progress = el("div", "tca-progress")
@@ -150,17 +163,25 @@ let galleryViewEnable = (projects = null) => {
             if (!list.length) {
                 img.style.display = "none"
                 frame.style.display = "none"
-                showEmpty("No projects to show")
+                if (allList.length) showEmpty("No projects match the status filter", "Pick a different status above.")
+                else showEmpty("No projects to show")
                 counter.textContent = "–"
                 title.textContent = ""
                 subtitle.textContent = ""
+                subtitle.title = ""
                 statusCtl.el.style.display = "none"
                 return
             }
             let p = list[i]
             title.textContent = p.name || "(untitled)"
             title.style.direction = contains_heb(p.name || "") ? "rtl" : "ltr"
-            subtitle.textContent = [p.student, p.className].filter(Boolean).join(" · ")
+            let createdMs = toMillis(p.btime)
+            let modifiedMs = toMillis(p.mtime)
+            let worked = (createdMs != null && modifiedMs != null) ? humanizeSpan(modifiedMs - createdMs) : null
+            subtitle.textContent = [p.student, p.className, worked ? `worked ${worked}` : null].filter(Boolean).join(" · ")
+            subtitle.title = createdMs != null
+                ? `Created ${new Date(createdMs).toLocaleDateString("pl-PL")} · last modified ${new Date(modifiedMs).toLocaleDateString("pl-PL")}`
+                : ""
             counter.textContent = `${i + 1} / ${list.length}`
             statusCtl.el.style.display = ""
             statusCtl.set(p.tags)
@@ -239,11 +260,21 @@ let galleryViewEnable = (projects = null) => {
             else scheduleNext()
         }
 
-        let begin = (items) => {
-            list = items || []
+        let applyFilter = () => {
+            let sf = filterSelect.value
+            list = sf === "any" ? allList.slice() : allList.filter((p) => {
+                let set = tcaParseTags(p.tags)
+                if (sf === "none") return !TCA_STATUS_TAGS.some((st) => set.has(st.tag))
+                return set.has(sf)
+            })
             i = 0
             render()
             scheduleNext()
+        }
+        filterSelect.addEventListener("change", () => applyFilter())
+        let begin = (items) => {
+            allList = items || []
+            applyFilter()
         }
         updatePauseUI()
         if (projects) {
@@ -265,6 +296,7 @@ let toGalleryItem = (project, clazz) => ({
     name: project.name,
     thumb: project.thumb || null,
     mtime: project.mtime || null,
+    btime: project.btime || null,
     tags: project.tags || "",
     printDescription: project.printDescription || "",
     student: (((clazz && clazz.students) || {})[project.author] || {}).name || project.author || null,

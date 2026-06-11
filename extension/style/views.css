@@ -1227,3 +1227,10 @@
     gap: 8px;
     margin-top: 2px;
 }
+
+/* ── Modal meta line (created / modified / work span) ──────────────── */
+.tca-view .tca-modal-meta {
+    font-size: 11px;
+    color: var(--tca-text-3);
+    margin-top: -6px;
+}

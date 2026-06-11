@@ -103,6 +103,17 @@ let downloadFolder = (className) => {
 /** Download file base name: "{username} {project name}". */
 let downloadFileBase = (username, projectName) => sanitizeName(`${username || ''} ${projectName || ''}`)
 
+/** Human-readable duration ("<1 h", "5 h", "3 d", "2 wk") or null. */
+let humanizeSpan = (ms) => {
+    if (ms == null || isNaN(ms) || ms < 0) return null
+    let h = ms / 3600000
+    if (h < 1) return "<1 h"
+    if (h < 48) return `${Math.round(h)} h`
+    let d = h / 24
+    if (d < 14) return `${Math.round(d)} d`
+    return `${Math.round(d / 7)} wk`
+}
+
 /** CSG STL/OBJ download URL for a design. */
 let designDownloadUrl = (designId, format) => `https://csg-prd.tinkercad.com/things/${designId}/polysoup.${format}?rev=-1`
 
@@ -188,6 +199,7 @@ if (typeof window !== 'undefined') {
     window.inDateRange = inDateRange;
     window.downloadFolder = downloadFolder;
     window.downloadFileBase = downloadFileBase;
+    window.humanizeSpan = humanizeSpan;
     window.designDownloadUrl = designDownloadUrl;
     window.designPageUrl = designPageUrl;
     window.classroomPageUrl = classroomPageUrl;
