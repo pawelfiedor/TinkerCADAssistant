@@ -54,7 +54,7 @@ let lazyDownloadAllButton = (format, itemFunction) => {
         itemFunction((directoryName, projects) => {
             let jobs = Object.values(projects).map((project) => ({
                 url: designDownloadUrl(project.id, format),
-                filename: `${directoryName}/${project.downloadName}.${downloadExt(format)}`
+                filename: `${directoryName}/${withWeightSuffix(project.downloadName, project.tags)}.${downloadExt(format)}`
             }))
             if (jobs.length === 0) {
                 alert("No projects to download")

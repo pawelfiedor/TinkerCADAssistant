@@ -10,6 +10,18 @@ let TCA_STATUS_TAGS = [
     {tag: "handed", label: "Handed out", color: "#16a34a"}
 ]
 
+/**
+ * Print-weight presets, also stored as tags (mutually exclusive).
+ * "ns" = print at original scale; the rest = scale to the given weight.
+ * The chosen value is appended to exported file names ("Model_10g.stl").
+ */
+let TCA_WEIGHT_TAGS = [
+    {tag: "ns", label: "NS", title: "No scaling — print at original size"},
+    {tag: "10g", label: "10g", title: "Scale to ~10 grams"},
+    {tag: "20g", label: "20g", title: "Scale to ~20 grams"},
+    {tag: "30g", label: "30g", title: "Scale to ~30 grams"}
+]
+
 /** asm_tags string -> Set of normalized tags. */
 let tcaParseTags = (tagsStr) => new Set(
     String(tagsStr || "")
@@ -21,10 +33,17 @@ let tcaParseTags = (tagsStr) => new Set(
 /** Set/array of tags -> asm_tags string. */
 let tcaSerializeTags = (tags) => [...tags].join(",")
 
-/** Tags from a string that are NOT workflow statuses (user's own tags). */
+/** The project's print-weight tag ("ns" / "10g" / …) or null. */
+let tcaWeightOf = (tagsStr) => {
+    let set = tcaParseTags(tagsStr)
+    let hit = TCA_WEIGHT_TAGS.find((w) => set.has(w.tag))
+    return hit ? hit.tag : null
+}
+
+/** Tags that are NOT workflow statuses or weight presets (user's own tags). */
 let tcaOtherTags = (tagsStr) => {
-    let statuses = new Set(TCA_STATUS_TAGS.map((s) => s.tag))
-    return [...tcaParseTags(tagsStr)].filter((t) => !statuses.has(t))
+    let known = new Set([...TCA_STATUS_TAGS.map((s) => s.tag), ...TCA_WEIGHT_TAGS.map((w) => w.tag)])
+    return [...tcaParseTags(tagsStr)].filter((t) => !known.has(t))
 }
 
 /** Persist changed project fields into the local storage cache. */
@@ -128,6 +147,37 @@ let tcaStatusChips = (opts = {}) => {
     return ctl
 }
 
+/**
+ * Print-weight chip row (single-select).
+ * opts: {weight: tag|null, onSelect: (weightDef, ctl) => void}
+ * Returns {el, set(weightTag|null)}.
+ */
+let tcaWeightChips = (opts = {}) => {
+    let wrap = tcaEl("span", "tca-status")
+    let buttons = new Map()
+    let ctl = {
+        el: wrap,
+        set(weightTag) {
+            buttons.forEach((b, tag) => b.classList.toggle("is-on", tag === weightTag))
+        }
+    }
+    TCA_WEIGHT_TAGS.forEach((wt) => {
+        let b = tcaEl("button", "tca-status-chip", wt.label)
+        b.type = "button"
+        b.title = wt.title || wt.label
+        b.style.setProperty("--tca-chip", "#5b6472")
+        b.onclick = (e) => {
+            e.stopPropagation()
+            e.preventDefault()
+            if (opts.onSelect) opts.onSelect(wt, ctl)
+        }
+        buttons.set(wt.tag, b)
+        wrap.appendChild(b)
+    })
+    ctl.set(opts.weight || null)
+    return ctl
+}
+
 /** Standard wiring: chips that toggle + PATCH the given item in place. */
 let tcaLiveStatusChips = (item, opts = {}) => tcaStatusChips({
     tags: item.tags,
@@ -145,9 +195,12 @@ let tcaLiveStatusChips = (item, opts = {}) => tcaStatusChips({
 
 if (typeof window !== 'undefined') {
     window.TCA_STATUS_TAGS = TCA_STATUS_TAGS;
+    window.TCA_WEIGHT_TAGS = TCA_WEIGHT_TAGS;
     window.tcaParseTags = tcaParseTags;
     window.tcaSerializeTags = tcaSerializeTags;
+    window.tcaWeightOf = tcaWeightOf;
     window.tcaOtherTags = tcaOtherTags;
+    window.tcaWeightChips = tcaWeightChips;
     window.tcaUpdateStoredProject = tcaUpdateStoredProject;
     window.tcaPatchProjectMeta = tcaPatchProjectMeta;
     window.tcaToggleStatusTag = tcaToggleStatusTag;

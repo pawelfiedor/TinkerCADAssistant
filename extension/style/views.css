@@ -1228,6 +1228,45 @@
     margin-top: 2px;
 }
 
+/* ── Card status row + print-weight chip ───────────────────────────── */
+.tca-view .tca-card-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.tca-view .tca-card-status .tca-status {
+    margin-top: 0;
+}
+
+.tca-view .tca-weight-chip {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--tca-text-2);
+    border: 1px solid var(--tca-border-strong);
+    border-radius: 999px;
+    padding: 1px 7px;
+    white-space: nowrap;
+}
+
+/* ── Floating bar menu: captions + separator ───────────────────────── */
+.tca-view .tca-fab-mi-cap {
+    padding: 6px 10px 2px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.45);
+}
+
+.tca-view .tca-fab-menu-sep {
+    height: 1px;
+    margin: 4px 6px;
+    background: rgba(255, 255, 255, 0.14);
+}
+
 /* ── Modal meta line (created / modified / work span) ──────────────── */
 .tca-view .tca-modal-meta {
     font-size: 11px;

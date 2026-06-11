@@ -11,6 +11,7 @@ let printerViewEnable = () => {
         let selected = new Set()   // selected design ids
         let cardById = new Map()   // id -> card element
         let cardChips = new Map()  // id -> status chip control
+        let cardWeights = new Map() // id -> weight chip refresh fn
         let SIZES = [180, 260, 360]
         let sizeIdx = 0
         let groupByClass = true
@@ -153,6 +154,7 @@ let printerViewEnable = () => {
         let rebuildStatusMenu = () => {
             statusMenu.innerHTML = ""
             let chosen = allItems.filter((it) => selected.has(it.id))
+            statusMenu.appendChild(el("div", "tca-fab-mi-cap", "Status"))
             TCA_STATUS_TAGS.forEach((st) => {
                 let have = chosen.filter((it) => tcaParseTags(it.tags).has(st.tag)).length
                 let allHave = chosen.length > 0 && have === chosen.length
@@ -168,6 +170,61 @@ let printerViewEnable = () => {
                 }
                 statusMenu.appendChild(mi)
             })
+            statusMenu.appendChild(el("div", "tca-fab-menu-sep"))
+            statusMenu.appendChild(el("div", "tca-fab-mi-cap", "Print weight"))
+            TCA_WEIGHT_TAGS.forEach((wt) => {
+                let have = chosen.filter((it) => tcaWeightOf(it.tags) === wt.tag).length
+                let mi = el("button", "tca-fab-mi")
+                mi.type = "button"
+                let dot = el("span", "tca-fab-mi-dot")
+                dot.style.background = "#5b6472"
+                mi.append(dot, el("span", null, wt.label), el("span", "tca-fab-mi-count", `${have}/${chosen.length}`))
+                mi.title = `Set for all selected: ${wt.title || wt.label}`
+                mi.onclick = () => {
+                    closeStatusMenu()
+                    bulkWeight(wt.tag, chosen)
+                }
+                statusMenu.appendChild(mi)
+            })
+            let clearMi = el("button", "tca-fab-mi")
+            clearMi.type = "button"
+            let clearDot = el("span", "tca-fab-mi-dot")
+            clearDot.style.background = "transparent"
+            clearDot.style.border = "1px solid rgba(255,255,255,.4)"
+            let withW = chosen.filter((it) => tcaWeightOf(it.tags)).length
+            clearMi.append(clearDot, el("span", null, "No weight"), el("span", "tca-fab-mi-count", `${withW}/${chosen.length}`))
+            clearMi.title = "Remove the weight tag from all selected"
+            clearMi.onclick = () => {
+                closeStatusMenu()
+                bulkWeight(null, chosen)
+            }
+            statusMenu.appendChild(clearMi)
+        }
+        let bulkWeight = (weightTag, chosen) => {
+            let targets = chosen.filter((it) => tcaWeightOf(it.tags) !== weightTag)
+            if (!targets.length) return
+            showNotice(`${weightTag ? `Setting weight "${weightTag}"` : "Clearing weight"} — ${targets.length} project(s)…`)
+            let failed = 0
+            let k = 0
+            let next = () => {
+                if (k >= targets.length) {
+                    showNotice(failed ? `Weight update finished with ${failed} error(s)` : `Updated ${targets.length} project(s)`, failed ? "error" : "ok")
+                    targets.forEach((it) => {
+                        let wf = cardWeights.get(it.id)
+                        if (wf) wf()
+                    })
+                    return
+                }
+                let it = targets[k++]
+                let set = tcaParseTags(it.tags)
+                TCA_WEIGHT_TAGS.forEach((w) => set.delete(w.tag))
+                if (weightTag) set.add(weightTag)
+                tcaPatchProjectMeta(it, {tags: tcaSerializeTags(set)}, () => next(), () => {
+                    failed++
+                    next()
+                })
+            }
+            next()
         }
         let bulkStatus = (st, chosen, removeAll) => {
             let targets = chosen.filter((it) => tcaParseTags(it.tags).has(st.tag) === removeAll)
@@ -268,6 +325,19 @@ let printerViewEnable = () => {
             })
             statusField.appendChild(chipsCtl.el)
 
+            let weightField = el("div", "tca-field")
+            weightField.appendChild(el("span", "tca-field-label", "Print weight"))
+            let localWeight = tcaWeightOf(it.tags)
+            let weightCtl = tcaWeightChips({
+                weight: localWeight,
+                onSelect: (wt, ctl) => {
+                    dirty = true
+                    localWeight = localWeight === wt.tag ? null : wt.tag
+                    ctl.set(localWeight)
+                }
+            })
+            weightField.appendChild(weightCtl.el)
+
             let descField = el("div", "tca-field")
             descField.appendChild(el("span", "tca-field-label", "Description"))
             let descInput = el("textarea", "tca-input tca-textarea")
@@ -292,12 +362,13 @@ let printerViewEnable = () => {
             let saveBtn = el("button", "tca-btn tca-btn--primary", "Save")
             saveBtn.type = "button"
             saveBtn.onclick = () => {
-                let statuses = new Set(TCA_STATUS_TAGS.map((s) => s.tag))
+                let known = new Set([...TCA_STATUS_TAGS.map((s) => s.tag), ...TCA_WEIGHT_TAGS.map((w) => w.tag)])
                 let others = tagsInput.value.split(",")
                     .map((t) => t.trim())
                     .filter(Boolean)
-                    .filter((t) => !statuses.has(t.toLowerCase()))
+                    .filter((t) => !known.has(t.toLowerCase()))
                 let ordered = TCA_STATUS_TAGS.filter((s) => localTags.has(s.tag)).map((s) => s.tag)
+                if (localWeight) ordered.push(localWeight)
                 let tagsStr = tcaSerializeTags([...ordered, ...others])
                 saveBtn.disabled = true
                 saveBtn.textContent = "Saving…"
@@ -305,6 +376,8 @@ let printerViewEnable = () => {
                     closeEditor()
                     let ctl = cardChips.get(it.id)
                     if (ctl) ctl.set(it.tags)
+                    let wf = cardWeights.get(it.id)
+                    if (wf) wf()
                 }, () => {
                     saveBtn.disabled = false
                     saveBtn.textContent = "Save"
@@ -312,7 +385,7 @@ let printerViewEnable = () => {
             }
             foot.append(cancelBtn, saveBtn)
 
-            editorCard.append(head, sub, meta, statusField, descField, tagsField, foot)
+            editorCard.append(head, sub, meta, statusField, weightField, descField, tagsField, foot)
             editor.classList.add("is-open")
 
             // Background refresh: tags may have changed in TinkerCAD's own
@@ -326,9 +399,13 @@ let printerViewEnable = () => {
                 if (it.clazzId) tcaUpdateStoredProject(it.clazzId, it.id, {tags: freshTags, printDescription: freshDesc})
                 let cardCtl = cardChips.get(it.id)
                 if (cardCtl) cardCtl.set(freshTags)
+                let cardW = cardWeights.get(it.id)
+                if (cardW) cardW()
                 if (!dirty && editorItemId === it.id) {
                     localTags = tcaParseTags(freshTags)
                     chipsCtl.set(freshTags)
+                    localWeight = tcaWeightOf(freshTags)
+                    weightCtl.set(localWeight)
                     descInput.value = freshDesc || ""
                     tagsInput.value = tcaOtherTags(freshTags).join(", ")
                 }
@@ -451,12 +528,24 @@ let printerViewEnable = () => {
             }
             let chipsCtl = tcaLiveStatusChips(it, {compact: true})
             cardChips.set(it.id, chipsCtl)
+            let weightEl = el("span", "tca-weight-chip")
+            weightEl.title = "Print weight (edit via the pencil)"
+            let refreshWeight = () => {
+                let w = tcaWeightOf(it.tags)
+                let def = w && TCA_WEIGHT_TAGS.find((x) => x.tag === w)
+                weightEl.textContent = def ? def.label : ""
+                weightEl.style.display = w ? "" : "none"
+            }
+            refreshWeight()
+            cardWeights.set(it.id, refreshWeight)
+            let statusRow = el("div", "tca-card-status")
+            statusRow.append(chipsCtl.el, weightEl)
             body.append(
                 el("div", "tca-card-student", it.student || "(unknown)"),
                 projLink,
                 classLink,
                 dateEl,
-                chipsCtl.el
+                statusRow
             )
 
             let editBtn = el("button", "tca-edit")
@@ -508,6 +597,7 @@ let printerViewEnable = () => {
             grid.innerHTML = ""
             cardById.clear()
             cardChips.clear()
+            cardWeights.clear()
             if (loading) {
                 renderSkeleton()
                 return
@@ -582,7 +672,7 @@ let printerViewEnable = () => {
             }
             let jobs = chosen.map((it) => ({
                 url: designDownloadUrl(it.id, format),
-                filename: `${downloadFolder(it.className || "TinkerCAD")}/${downloadFileBase(it.student, it.name)}.${downloadExt(format)}`
+                filename: `${downloadFolder(it.className || "TinkerCAD")}/${withWeightSuffix(downloadFileBase(it.student, it.name), it.tags)}.${downloadExt(format)}`
             }))
             downloadBatch(jobs)
         }

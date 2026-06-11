@@ -263,7 +263,7 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
             ovBtn("STL", () => {
                 let it = items[sel]
                 if (!it) return
-                download({id: it.id, downloadName: downloadFileBase(it.student, it.name)}, downloadFolder(className || "TinkerCAD"), "stl")
+                download({id: it.id, downloadName: withWeightSuffix(downloadFileBase(it.student, it.name), it.tags)}, downloadFolder(className || "TinkerCAD"), "stl")
             }, "Download this design as STL"),
             ovBtn("PNG", () => {
                 let it = items[sel]

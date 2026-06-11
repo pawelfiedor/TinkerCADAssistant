@@ -106,14 +106,14 @@ let main = () => {
                 openTab(`https://www.tinkercad.com/things/${id}/edit`)
             })
             button("STL", () => {
-                resolveDownloadTarget(id, name, (folder, fileBase) => {
-                    download({id: id, downloadName: fileBase}, folder, "stl", () => {
+                resolveDownloadTarget(id, name, (folder, fileBase, proj) => {
+                    download({id: id, downloadName: withWeightSuffix(fileBase, proj && proj.tags)}, folder, "stl", () => {
                     })
                 })
             })
             button("OBJ", () => {
-                resolveDownloadTarget(id, name, (folder, fileBase) => {
-                    download({id: id, downloadName: fileBase}, folder, "obj", () => {
+                resolveDownloadTarget(id, name, (folder, fileBase, proj) => {
+                    download({id: id, downloadName: withWeightSuffix(fileBase, proj && proj.tags)}, folder, "obj", () => {
                     })
                 })
             })
@@ -228,6 +228,7 @@ let main = () => {
                                 downloadItems[project.id] = {
                                     id: project.id,
                                     downloadName: downloadFileBase(username, project.name),
+                                    tags: project.tags || "",
                                     thumb: project.thumb || null
                                 }
                             }

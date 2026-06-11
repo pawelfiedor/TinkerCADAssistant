@@ -114,6 +114,18 @@ let humanizeSpan = (ms) => {
     return `${Math.round(d / 7)} wk`
 }
 
+/**
+ * Append the print-weight preset (if tagged) to a file base name:
+ * "Ala Keychain" + "printed,10g" -> "Ala Keychain_10g". Applied after
+ * sanitizeName so the underscore separator survives.
+ */
+let withWeightSuffix = (fileBase, tags) => {
+    let w = (typeof tcaWeightOf === "function") ? tcaWeightOf(tags) : null
+    if (!w) return fileBase
+    let def = TCA_WEIGHT_TAGS.find((x) => x.tag === w)
+    return `${fileBase}_${def ? def.label : w}`
+}
+
 /** CSG STL/OBJ download URL for a design. */
 let designDownloadUrl = (designId, format) => `https://csg-prd.tinkercad.com/things/${designId}/polysoup.${format}?rev=-1`
 
@@ -200,6 +212,7 @@ if (typeof window !== 'undefined') {
     window.downloadFolder = downloadFolder;
     window.downloadFileBase = downloadFileBase;
     window.humanizeSpan = humanizeSpan;
+    window.withWeightSuffix = withWeightSuffix;
     window.designDownloadUrl = designDownloadUrl;
     window.designPageUrl = designPageUrl;
     window.classroomPageUrl = classroomPageUrl;
