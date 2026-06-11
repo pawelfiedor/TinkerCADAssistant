@@ -2,157 +2,20 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Settings</title>
+    <title>TinkerCAD Assistant — Settings</title>
+    <link rel="stylesheet" href="style/views.css">
     <style>
         body {
-            font-family: "Arial", sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            background-color: #e0e0e0;
             margin: 0;
-        }
-
-        .selected {
-            font-weight: bold;
-            color: #4CAF50;
-        }
-
-        .unselected {
-            font-weight: normal;
-            color: #ffffff;
-        }
-
-        .settings-container {
-            background: #2c2c2c;
-            padding: 25px;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-            width: 350px;
-            text-align: center;
-            color: #ffffff;
-        }
-
-        h2 {
-            color: #ffffff;
-            font-weight: bold;
-        }
-
-        label {
-            display: block;
-            margin-top: 15px;
-            font-weight: bold;
-            color: #bdbdbd;
-        }
-
-        select, input {
-            width: 100%;
-            padding: 10px;
-            margin-top: 5px;
-            border: none;
-            border-radius: 5px;
-            background: #424242;
-            color: #ffffff;
-        }
-
-        .dropdown {
-            position: relative;
-            width: 100%;
-            text-align: left;
-            background: #424242;
-            border-radius: 5px;
-            padding: 10px;
-            cursor: pointer;
-        }
-
-        .dropdown-content {
-
-            display: none;
-            position: absolute;
-            width: 100%;
-            background: #424242;
-            border-radius: 5px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
-            margin-top: 5px;
-            padding: 10px;
-            z-index: 10;
-            overflow: clip;
-            overflow-y: scroll;
-            height: 40vh;
-        }
-
-        .dropdown-content div {
-            padding: 5px 0;
-            cursor: pointer;
-        }
-
-        .dropdown.open .dropdown-content {
-            display: block;
-        }
-
-        .save-btn {
-            margin-top: 20px;
-            padding: 12px;
-            background: #007BFF;
-            color: white;
-            border: none;
-            cursor: pointer;
-            width: 100%;
-            border-radius: 5px;
-            font-weight: bold;
-        }
-
-        .save-btn:hover {
-            background: #0056b3;
-        }
-
-        .speed-slider {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-top: 5px;
+            width: 430px;
+            font-family: "Open Sans", Helvetica, Arial, sans-serif;
         }
     </style>
 </head>
-<body>
-<div class="settings-container">
-    <h2>⚙️ TinkerCAD Assistant Settings</h2>
-
-    <!--    <label for="theme">🎨 Theme:</label>-->
-    <!--    <select id="theme">-->
-    <!--        <option value="light">Light</option>-->
-    <!--        <option value="dark">Dark</option>-->
-    <!--    </select>-->
-
-<!--    <label>🛠️ Print classes</label>-->
-<!--    <div class="dropdown">-->
-<!--        <div id="selected-features">Select Features ▼</div>-->
-<!--        <div class="dropdown-content selection">-->
-<!--            <div class="feature unselected" name="Feature 1">Feature 1</div>-->
-<!--            <div class="feature unselected" name="Feature 1">Feature 2</div>-->
-<!--            <div class="feature unselected" name="Feature 1">Feature 3</div>-->
-<!--        </div>-->
-<!--    </div>-->
-
-
-    <label for="speed">⚡ Auto Speed:</label>
-    <div class="speed-slider">
-        <span>Slow</span>
-        <input type="range" id="speed" min="1" max="5" step="1" list="speed-steps">
-        <datalist id="speed-steps">
-            <option value="1" label="1"></option>
-            <option value="2" label="2"></option>
-            <option value="3" label="3"></option>
-            <option value="4" label="4"></option>
-            <option value="5" label="5"></option>
-        </datalist>
-        <span>Fast</span>
-    </div>
-
-    <button class="save-btn" id="save-btn">💾 Save Settings</button>
-</div>
-</body>
+<body class="tca-view">
+<div class="tca-settings" id="app"></div>
+<script src="scripts/lib/ui-buttons.js"></script>
+<script src="scripts/lib/status-tags.js"></script>
 <script src="settings.js"></script>
+</body>
 </html>

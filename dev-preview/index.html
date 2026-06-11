@@ -19,7 +19,10 @@
     // ── Stubs for extension globals (chrome APIs, storage layer) ──
     window.chrome = {
         runtime: {id: "preview", sendMessage() {}, onMessage: {addListener() {}}},
-        storage: {local: {get(k, cb) { cb({speed: 4}) }, set(o, cb) { cb && cb() }}}
+        storage: {
+            local: {get(k, cb) { cb({speed: 4}) }, set(o, cb) { cb && cb() }},
+            onChanged: {addListener() {}}
+        }
     }
     window.Context = {PRINTER: "printer", CLASSES: "classes", GALLERY: "gallery", GENERAL: "general", TEACHER: "teacher", ACTIVITY: "activity"}
     window.showNotice = (text, kind) => console.log("notice:", kind, text)

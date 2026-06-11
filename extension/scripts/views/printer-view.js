@@ -154,23 +154,26 @@ let printerViewEnable = () => {
         let rebuildStatusMenu = () => {
             statusMenu.innerHTML = ""
             let chosen = allItems.filter((it) => selected.has(it.id))
-            statusMenu.appendChild(el("div", "tca-fab-mi-cap", "Status"))
-            TCA_STATUS_TAGS.forEach((st) => {
-                let have = chosen.filter((it) => tcaParseTags(it.tags).has(st.tag)).length
-                let allHave = chosen.length > 0 && have === chosen.length
-                let mi = el("button", "tca-fab-mi")
-                mi.type = "button"
-                let dot = el("span", "tca-fab-mi-dot")
-                dot.style.background = st.color
-                mi.append(dot, el("span", null, st.label), el("span", "tca-fab-mi-count", `${have}/${chosen.length}`))
-                mi.title = allHave ? `Remove "${st.label}" from all selected` : `Mark all selected as "${st.label}"`
-                mi.onclick = () => {
-                    closeStatusMenu()
-                    bulkStatus(st, chosen, allHave)
-                }
-                statusMenu.appendChild(mi)
-            })
-            statusMenu.appendChild(el("div", "tca-fab-menu-sep"))
+            if (tcaFeatures.statusEditing) {
+                statusMenu.appendChild(el("div", "tca-fab-mi-cap", "Status"))
+                TCA_STATUS_TAGS.forEach((st) => {
+                    let have = chosen.filter((it) => tcaParseTags(it.tags).has(st.tag)).length
+                    let allHave = chosen.length > 0 && have === chosen.length
+                    let mi = el("button", "tca-fab-mi")
+                    mi.type = "button"
+                    let dot = el("span", "tca-fab-mi-dot")
+                    dot.style.background = st.color
+                    mi.append(dot, el("span", null, st.label), el("span", "tca-fab-mi-count", `${have}/${chosen.length}`))
+                    mi.title = allHave ? `Remove "${st.label}" from all selected` : `Mark all selected as "${st.label}"`
+                    mi.onclick = () => {
+                        closeStatusMenu()
+                        bulkStatus(st, chosen, allHave)
+                    }
+                    statusMenu.appendChild(mi)
+                })
+            }
+            if (!tcaFeatures.weights) return
+            if (tcaFeatures.statusEditing) statusMenu.appendChild(el("div", "tca-fab-menu-sep"))
             statusMenu.appendChild(el("div", "tca-fab-mi-cap", "Print weight"))
             TCA_WEIGHT_TAGS.forEach((wt) => {
                 let have = chosen.filter((it) => tcaWeightOf(it.tags) === wt.tag).length
@@ -256,6 +259,8 @@ let printerViewEnable = () => {
             fabBtn("Status ▾", () => statusMenuOpen ? closeStatusMenu() : openStatusMenu(), "Set workflow status for the selected projects"),
             statusMenu
         )
+        // Nothing to offer when both bulk sections are disabled in settings.
+        if (!tcaFeatures.statusEditing && !tcaFeatures.weights) statusWrap.style.display = "none"
 
         fab.append(
             fabCount,
@@ -325,18 +330,24 @@ let printerViewEnable = () => {
             })
             statusField.appendChild(chipsCtl.el)
 
-            let weightField = el("div", "tca-field")
-            weightField.appendChild(el("span", "tca-field-label", "Print weight"))
+            // Weight kept in localWeight even when the UI is disabled, so
+            // saving never drops an existing weight tag.
             let localWeight = tcaWeightOf(it.tags)
-            let weightCtl = tcaWeightChips({
-                weight: localWeight,
-                onSelect: (wt, ctl) => {
-                    dirty = true
-                    localWeight = localWeight === wt.tag ? null : wt.tag
-                    ctl.set(localWeight)
-                }
-            })
-            weightField.appendChild(weightCtl.el)
+            let weightCtl = null
+            let weightField = null
+            if (tcaFeatures.weights) {
+                weightField = el("div", "tca-field")
+                weightField.appendChild(el("span", "tca-field-label", "Print weight"))
+                weightCtl = tcaWeightChips({
+                    weight: localWeight,
+                    onSelect: (wt, ctl) => {
+                        dirty = true
+                        localWeight = localWeight === wt.tag ? null : wt.tag
+                        ctl.set(localWeight)
+                    }
+                })
+                weightField.appendChild(weightCtl.el)
+            }
 
             let descField = el("div", "tca-field")
             descField.appendChild(el("span", "tca-field-label", "Description"))
@@ -385,7 +396,9 @@ let printerViewEnable = () => {
             }
             foot.append(cancelBtn, saveBtn)
 
-            editorCard.append(head, sub, meta, statusField, weightField, descField, tagsField, foot)
+            editorCard.append(head, sub, meta, statusField)
+            if (weightField) editorCard.appendChild(weightField)
+            editorCard.append(descField, tagsField, foot)
             editor.classList.add("is-open")
 
             // Background refresh: tags may have changed in TinkerCAD's own
@@ -405,7 +418,7 @@ let printerViewEnable = () => {
                     localTags = tcaParseTags(freshTags)
                     chipsCtl.set(freshTags)
                     localWeight = tcaWeightOf(freshTags)
-                    weightCtl.set(localWeight)
+                    if (weightCtl) weightCtl.set(localWeight)
                     descInput.value = freshDesc || ""
                     tagsInput.value = tcaOtherTags(freshTags).join(", ")
                 }
@@ -531,7 +544,7 @@ let printerViewEnable = () => {
             let weightEl = el("span", "tca-weight-chip")
             weightEl.title = "Print weight (edit via the pencil)"
             let refreshWeight = () => {
-                let w = tcaWeightOf(it.tags)
+                let w = tcaFeatures.weights ? tcaWeightOf(it.tags) : null
                 let def = w && TCA_WEIGHT_TAGS.find((x) => x.tag === w)
                 weightEl.textContent = def ? def.label : ""
                 weightEl.style.display = w ? "" : "none"

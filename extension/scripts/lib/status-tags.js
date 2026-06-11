@@ -2,8 +2,10 @@
  * Project workflow statuses, stored as plain tags in the design's
  * `asm_tags` field (comma-separated string, editable from TinkerCAD's
  * own properties dialog too). Single source of truth for every view.
+ * The live lists below can be overridden from the settings popup
+ * (tcaConfig in chrome.storage); the defaults stay available for reset.
  */
-let TCA_STATUS_TAGS = [
+let TCA_STATUS_DEFAULTS = [
     {tag: "to-print", label: "To print", color: "#1477d1"},
     {tag: "verified", label: "Verified", color: "#7c3aed"},
     {tag: "printed", label: "Printed", color: "#d97706"},
@@ -15,12 +17,63 @@ let TCA_STATUS_TAGS = [
  * "ns" = print at original scale; the rest = scale to the given weight.
  * The chosen value is appended to exported file names ("Model_10g.stl").
  */
-let TCA_WEIGHT_TAGS = [
+let TCA_WEIGHT_DEFAULTS = [
     {tag: "ns", label: "NS", title: "No scaling — print at original size"},
     {tag: "10g", label: "10g", title: "Scale to ~10 grams"},
     {tag: "20g", label: "20g", title: "Scale to ~20 grams"},
     {tag: "30g", label: "30g", title: "Scale to ~30 grams"}
 ]
+
+/** Live lists — mutated in place by tcaApplyConfig so references stay valid. */
+let TCA_STATUS_TAGS = TCA_STATUS_DEFAULTS.map((s) => ({...s}))
+let TCA_WEIGHT_TAGS = TCA_WEIGHT_DEFAULTS.map((w) => ({...w}))
+
+/** Feature switches (settings popup): editing statuses / weight handling. */
+let tcaFeatures = {statusEditing: true, weights: true}
+
+/** Normalize a user-entered tag into an asm_tags-safe slug. */
+let tcaSanitizeTag = (t) => String(t || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[,\s]+/g, "-")
+    .replace(/[^a-z0-9_-]/g, "")
+
+/** Apply the stored configuration (or defaults when absent/invalid). */
+let tcaApplyConfig = (cfg) => {
+    cfg = cfg || {}
+    tcaFeatures.statusEditing = cfg.statusEditing !== false
+    tcaFeatures.weights = cfg.weightsEnabled !== false
+    let mapList = (list, defaults, withColor) => {
+        let src = Array.isArray(list) && list.length ? list : defaults
+        let out = []
+        let seen = new Set()
+        for (let e of src) {
+            let tag = tcaSanitizeTag(e && (e.tag || e.label))
+            if (!tag || seen.has(tag)) continue
+            seen.add(tag)
+            let item = {tag, label: String((e && e.label) || tag)}
+            if (withColor) item.color = (e && e.color) || "#5b6472"
+            if (e && e.title) item.title = e.title
+            out.push(item)
+        }
+        return out.length ? out : defaults.map((d) => ({...d}))
+    }
+    TCA_STATUS_TAGS.length = 0
+    TCA_STATUS_TAGS.push(...mapList(cfg.statusTags, TCA_STATUS_DEFAULTS, true))
+    TCA_WEIGHT_TAGS.length = 0
+    TCA_WEIGHT_TAGS.push(...mapList(cfg.weightTags, TCA_WEIGHT_DEFAULTS, false))
+}
+
+// Load once per page and follow live changes from the settings popup.
+// (Already-open views keep their UI until reopened.)
+if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+    chrome.storage.local.get(["tcaConfig"], (data) => tcaApplyConfig(data && data.tcaConfig))
+    if (chrome.storage.onChanged && chrome.storage.onChanged.addListener) {
+        chrome.storage.onChanged.addListener((changes, area) => {
+            if (area === "local" && changes.tcaConfig) tcaApplyConfig(changes.tcaConfig.newValue)
+        })
+    }
+}
 
 /** asm_tags string -> Set of normalized tags. */
 let tcaParseTags = (tagsStr) => new Set(
@@ -125,12 +178,14 @@ let tcaStatusChips = (opts = {}) => {
             if (opts.onToggle) b.disabled = !!busy
         }
     }
+    // The "status editing" setting downgrades every chip row to read-only.
+    let interactive = !!opts.onToggle && tcaFeatures.statusEditing
     TCA_STATUS_TAGS.forEach((st) => {
         let b = tcaEl("button", "tca-status-chip", opts.compact ? null : st.label)
         b.type = "button"
         b.title = st.label
         b.style.setProperty("--tca-chip", st.color)
-        if (opts.onToggle) {
+        if (interactive) {
             b.onclick = (e) => {
                 e.stopPropagation()
                 e.preventDefault()
@@ -196,6 +251,11 @@ let tcaLiveStatusChips = (item, opts = {}) => tcaStatusChips({
 if (typeof window !== 'undefined') {
     window.TCA_STATUS_TAGS = TCA_STATUS_TAGS;
     window.TCA_WEIGHT_TAGS = TCA_WEIGHT_TAGS;
+    window.TCA_STATUS_DEFAULTS = TCA_STATUS_DEFAULTS;
+    window.TCA_WEIGHT_DEFAULTS = TCA_WEIGHT_DEFAULTS;
+    window.tcaFeatures = tcaFeatures;
+    window.tcaSanitizeTag = tcaSanitizeTag;
+    window.tcaApplyConfig = tcaApplyConfig;
     window.tcaParseTags = tcaParseTags;
     window.tcaSerializeTags = tcaSerializeTags;
     window.tcaWeightOf = tcaWeightOf;

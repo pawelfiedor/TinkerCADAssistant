@@ -120,6 +120,7 @@ let humanizeSpan = (ms) => {
  * sanitizeName so the underscore separator survives.
  */
 let withWeightSuffix = (fileBase, tags) => {
+    if (typeof tcaFeatures !== "undefined" && !tcaFeatures.weights) return fileBase
     let w = (typeof tcaWeightOf === "function") ? tcaWeightOf(tags) : null
     if (!w) return fileBase
     let def = TCA_WEIGHT_TAGS.find((x) => x.tag === w)
