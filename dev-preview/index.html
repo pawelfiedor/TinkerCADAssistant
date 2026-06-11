@@ -4,7 +4,14 @@
     <meta charset="utf-8">
     <title>TCA views preview</title>
     <link rel="stylesheet" href="/extension/style/views.css">
-    <style>body { margin: 0; font-family: "Open Sans", Helvetica, Arial, sans-serif; }</style>
+    <style>
+        body { margin: 0; font-family: "Open Sans", Helvetica, Arial, sans-serif; }
+        /* Simulate hostile host-page typography (like tinkercad.com) to make
+           sure the .tca-view design system doesn't inherit it. */
+        body { line-height: 2.4; }
+        a { line-height: 2.6; padding: 4px 0; display: inline-block; }
+        div { letter-spacing: normal; }
+    </style>
 </head>
 <body>
 <div id="main" style="padding: 20px">TinkerCAD page placeholder</div>
@@ -62,7 +69,7 @@
     let classData = {}
     let now = Date.now()
     let i = 0
-    ;[["c1", "4A — Robotics"], ["c2", "5B — 3D Design"], ["c3", "6C — STEM Club"]].forEach(([cid, cname], ci) => {
+    ;[["c1", "4A — Robotics"], ["c2", "5B — 3D Design"], ["c3", "6C — STEM Club (środy 15:30, sala 12, grupa zaawansowana)"]].forEach(([cid, cname], ci) => {
         let students = {}
         studentNames.forEach((n, k) => students[`u${k}`] = {id: `u${k}`, name: n})
         let projects = {}

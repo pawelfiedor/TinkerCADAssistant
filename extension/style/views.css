@@ -20,6 +20,8 @@
     --tca-shadow-lg: 0 16px 40px rgba(16, 24, 40, 0.20);
 
     font-family: "Open Sans", Helvetica, Arial, sans-serif;
+    /* Explicit so the host page's typography can't inflate our layout. */
+    line-height: 1.4;
     color: var(--tca-text);
     background: var(--tca-bg);
 }
@@ -446,6 +448,16 @@
     display: grid;
     gap: 2px;
     padding: 10px 12px 11px;
+}
+
+/* Normalize every text line on a card against host-page styles. */
+.tca-view .tca-card-student,
+.tca-view .tca-card-project,
+.tca-view .tca-card-class,
+.tca-view .tca-card-date {
+    margin: 0;
+    padding: 0;
+    line-height: 1.35;
 }
 
 .tca-view .tca-card-student {
