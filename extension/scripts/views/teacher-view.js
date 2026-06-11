@@ -3,45 +3,76 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
     let active = true
 
     getCurrentActivityAndClassID((clazzID, activityID) => {
-        // ── Layout: header + thumbnail grid ─────────────────────────
-        let header = document.createElement("div")
-        header.classList.add("btn-group")
-        Object.assign(header.style, {
-            display: "flex", alignItems: "center", gap: "8px", flex: "0 0 auto",
-            padding: "6px 12px", boxSizing: "border-box", flexWrap: "wrap",
-            fontFamily: "Open Sans, Helvetica, Arial, sans-serif"
-        })
-        let heading = document.createElement("div")
-        Object.assign(heading.style, {fontSize: "15px", fontWeight: "700", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "40vw"})
-        let count = document.createElement("span")
-        Object.assign(count.style, {fontSize: "13px", color: "#666", marginLeft: "auto"})
-        let grid = document.createElement("div")
-        Object.assign(grid.style, {
-            display: "flex", flexWrap: "wrap", gap: "12px", padding: "12px",
-            flex: "1", minHeight: "0", overflowY: "auto", alignContent: "flex-start", boxSizing: "border-box"
-        })
-        container.appendChild(header)
-        container.appendChild(grid)
+        // Adopt the scoped design system; clear enableView's inline #fff so
+        // the stylesheet canvas color applies.
+        container.classList.add("tca-view", "tca-teacher")
+        container.style.background = ""
+        let el = tcaEl
 
-        // ── Enlarge overlay ─────────────────────────────────────────
-        let overlay = document.createElement("div")
-        Object.assign(overlay.style, {
-            position: "fixed", inset: "0", background: "rgba(0,0,0,0.88)", display: "none",
-            flexDirection: "column", alignItems: "center", justifyContent: "center",
-            zIndex: "2147483646", fontFamily: "Open Sans, Helvetica, Arial, sans-serif"
+        // ── Layout: top bar + thumbnail grid ────────────────────────
+        let topbar = el("div", "tca-topbar")
+        let backBtn = el("button", "tca-btn tca-btn--ghost")
+        backBtn.type = "button"
+        backBtn.appendChild(tcaIcon(TCA_ICONS.back))
+        backBtn.appendChild(document.createTextNode("Back"))
+        let labels = el("div", "tca-labels")
+        let heading = el("div", "tca-slide-title")
+        let subheading = el("div", "tca-slide-sub")
+        labels.append(heading, subheading)
+        let count = el("span", "tca-pill", "Loading…")
+
+        let autoSwitch = el("button", "tca-switch")
+        autoSwitch.type = "button"
+        autoSwitch.setAttribute("aria-pressed", "false")
+        autoSwitch.title = "Cycle through projects automatically (Space)"
+        autoSwitch.appendChild(el("span", null, "Auto-play"))
+        autoSwitch.appendChild(el("span", "tca-switch-track"))
+
+        let reloadBtn = el("button", "tca-btn", "Reload")
+        reloadBtn.type = "button"
+        reloadBtn.title = "Fetch the latest projects"
+
+        let seg = el("div", "tca-seg")
+        let SIZES = [180, 260, 360] // card widths in px; first = current minimum
+        let sizeIdx = 0
+        let setSize = (idx) => {
+            sizeIdx = idx
+            sizeBtns.forEach((b, k) => b.classList.toggle("is-active", k === idx))
+            renderGrid()
+        }
+        let sizeBtns = [["S", "Small cards"], ["M", "Medium cards"], ["L", "Large cards"]].map(([t, tip], idx) => {
+            let b = el("button", "tca-seg-btn", t)
+            b.type = "button"
+            b.title = tip
+            b.onclick = () => setSize(idx)
+            seg.appendChild(b)
+            return b
         })
-        let ovTitle = document.createElement("div")
-        Object.assign(ovTitle.style, {color: "#fff", fontSize: "18px", fontWeight: "700", margin: "8px 0"})
+        sizeBtns[0].classList.add("is-active")
+
+        topbar.append(backBtn, el("span", "tca-vsep"), labels, count, el("span", "tca-spacer"), autoSwitch, reloadBtn, seg)
+
+        let grid = el("div", "tca-grid tca-scroll")
+        container.append(topbar, grid)
+
+        let renderMessage = (titleText, hint) => {
+            grid.innerHTML = ""
+            cardEls = []
+            let box = el("div", "tca-empty")
+            box.appendChild(tcaIcon(TCA_ICONS.cube))
+            box.appendChild(el("h3", null, titleText))
+            if (hint) box.appendChild(el("p", null, hint))
+            grid.appendChild(box)
+        }
+
+        // ── Enlarge overlay (lightbox) ──────────────────────────────
+        let overlay = el("div", "tca-ov")
+        let ovTitle = el("div", "tca-ov-title")
         let ovImg = document.createElement("img")
-        Object.assign(ovImg.style, {maxWidth: "90vw", maxHeight: "74vh", objectFit: "contain", background: "#fff", borderRadius: "6px"})
         let ovFrame = document.createElement("iframe")
-        Object.assign(ovFrame.style, {width: "90vw", height: "74vh", border: "none", display: "none", background: "#fff", borderRadius: "6px"})
-        let ovBar = document.createElement("div")
-        Object.assign(ovBar.style, {display: "flex", gap: "8px", marginTop: "12px", flexWrap: "wrap", justifyContent: "center"})
-        overlay.appendChild(ovTitle)
-        overlay.appendChild(ovImg)
-        overlay.appendChild(ovFrame)
-        overlay.appendChild(ovBar)
+        ovFrame.style.display = "none"
+        let ovBar = el("div", "tca-ov-bar")
+        overlay.append(ovTitle, ovImg, ovFrame, ovBar)
         container.appendChild(overlay)
 
         // ── State ───────────────────────────────────────────────────
@@ -55,8 +86,6 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
         let className = ""
         let activityName = ""
         let codeAdded = false
-        let SIZES = [180, 260, 360] // card widths in px; first = current minimum
-        let sizeIdx = 0
 
         let buildItems = (clazz) => {
             let act = ((clazz && clazz.activities) || {})[activityID] || {}
@@ -71,55 +100,48 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
 
         let highlight = () => {
             cardEls.forEach((c, idx) => {
-                c.style.border = idx === sel ? "2px solid #4076c7" : "2px solid transparent"
+                c.classList.toggle("is-selected", idx === sel)
             })
         }
 
         let renderGrid = () => {
+            if (!items.length) {
+                renderMessage("No projects yet", "Student projects appear here as they sync.")
+                return
+            }
             grid.innerHTML = ""
             cardEls = []
-            count.innerText = `${items.length} project${items.length === 1 ? "" : "s"}`
+            let row = el("div", "tca-row")
             items.forEach((it, idx) => {
-                let cardW = SIZES[sizeIdx]
-                let card = document.createElement("div")
-                Object.assign(card.style, {
-                    width: `${cardW}px`, cursor: "pointer", border: "2px solid transparent",
-                    borderRadius: "8px", overflow: "hidden", background: "#fff", boxShadow: "0 1px 4px rgba(0,0,0,0.12)"
-                })
-                let thumbWrap = document.createElement("div")
-                Object.assign(thumbWrap.style, {
-                    width: "100%", height: `${Math.round(cardW * 0.75)}px`, background: "#f1f5f9", display: "flex",
-                    alignItems: "center", justifyContent: "center", overflow: "hidden", fontSize: "32px"
-                })
+                let card = el("div", "tca-card")
+                card.style.width = `${SIZES[sizeIdx]}px`
+                card.title = `${it.student} — ${it.name || ""}`
+                let thumbWrap = el("div", "tca-thumb")
                 if (it.thumb) {
                     let im = document.createElement("img")
-                    Object.assign(im.style, {width: "100%", height: "100%", objectFit: "cover"})
                     im.src = it.thumb
                     im.alt = ""
                     im.onerror = () => {
                         refreshThumbnail(it.id, clazzID, im, () => {
-                            im.style.display = "none"
-                            thumbWrap.textContent = "🧊"
+                            im.remove()
+                            thumbWrap.appendChild(tcaIcon(TCA_ICONS.cube))
                         })
                     }
                     thumbWrap.appendChild(im)
                 } else {
-                    thumbWrap.textContent = "🧊"
+                    thumbWrap.appendChild(tcaIcon(TCA_ICONS.cube))
                 }
-                let lbl = document.createElement("div")
-                Object.assign(lbl.style, {padding: "6px 8px 0", fontSize: "13px", fontWeight: "600", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"})
-                lbl.textContent = it.student
-                let projEl = document.createElement("div")
-                Object.assign(projEl.style, {padding: "0 8px 6px", fontSize: "11px", color: "#64748b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"})
-                projEl.textContent = it.name || "(untitled)"
-                lbl.title = `${it.student} — ${it.name || ""}`
-                card.appendChild(thumbWrap)
-                card.appendChild(lbl)
-                card.appendChild(projEl)
+                let body = el("div", "tca-card-body")
+                body.append(
+                    el("div", "tca-card-student", it.student),
+                    el("div", "tca-card-project", it.name || "(untitled)")
+                )
+                card.append(thumbWrap, body)
                 card.onclick = () => openOverlay(idx)
-                grid.appendChild(card)
+                row.appendChild(card)
                 cardEls.push(card)
             })
+            grid.appendChild(row)
             highlight()
         }
 
@@ -158,14 +180,14 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
             ovOpen = true
             ovMode = "image"
             modeBtn.textContent = "3D"
-            overlay.style.display = "flex"
+            overlay.classList.add("is-open")
             highlight()
             renderOverlay()
         }
         let closeOverlay = () => {
             ovOpen = false
             ovFrame.src = "about:blank"
-            overlay.style.display = "none"
+            overlay.classList.remove("is-open")
         }
         let move = (delta) => {
             if (!items.length) return
@@ -181,33 +203,54 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
         }
 
         // ── Overlay controls ────────────────────────────────────────
-        let modeBtn = bigButton("3D", () => {
+        let ovBtn = (label, onClick, tip) => {
+            let b = el("button", "tca-fab-btn", label)
+            b.type = "button"
+            if (tip) b.title = tip
+            b.onclick = onClick
+            return b
+        }
+        let ovIconBtn = (svg, tip, onClick) => {
+            let b = el("button", "tca-fab-btn tca-fab-clear")
+            b.type = "button"
+            b.title = tip
+            b.setAttribute("aria-label", tip)
+            b.appendChild(tcaIcon(svg))
+            b.onclick = onClick
+            return b
+        }
+        let ovSep = () => el("span", "tca-fab-sep")
+        let modeBtn = ovBtn("3D", () => {
             ovMode = ovMode === "3d" ? "image" : "3d"
             modeBtn.textContent = ovMode === "3d" ? "Image" : "3D"
             renderOverlay()
-        })
-        ovBar.appendChild(bigButton("◀", () => move(-1)))
-        ovBar.appendChild(modeBtn)
-        ovBar.appendChild(bigButton("STL", () => {
-            let it = items[sel]
-            if (!it) return
-            download({id: it.id, downloadName: downloadFileBase(it.student, it.name)}, downloadFolder(className || "TinkerCAD"), "stl")
-        }))
-        ovBar.appendChild(bigButton("PNG", () => {
-            let it = items[sel]
-            if (!it) return
-            if (!it.thumb) {
-                alert("No thumbnail for this project")
-                return
-            }
-            downloadBatch([{url: it.thumb, filename: `${downloadFolder(className || "TinkerCAD")}/${downloadFileBase(it.student, it.name)}.png`}])
-        }))
-        ovBar.appendChild(bigButton("Open in 3D ↗", () => {
-            let it = items[sel]
-            if (it) openTab(`https://www.tinkercad.com/things/${it.id}/edit`)
-        }))
-        ovBar.appendChild(bigButton("▶", () => move(1)))
-        ovBar.appendChild(bigButton("Close", () => closeOverlay()))
+        }, "Toggle between the thumbnail and the live 3D model")
+        ovBar.append(
+            ovIconBtn(TCA_ICONS.chevronLeft, "Previous", () => move(-1)),
+            modeBtn,
+            ovSep(),
+            ovBtn("STL", () => {
+                let it = items[sel]
+                if (!it) return
+                download({id: it.id, downloadName: downloadFileBase(it.student, it.name)}, downloadFolder(className || "TinkerCAD"), "stl")
+            }, "Download this design as STL"),
+            ovBtn("PNG", () => {
+                let it = items[sel]
+                if (!it) return
+                if (!it.thumb) {
+                    alert("No thumbnail for this project")
+                    return
+                }
+                downloadBatch([{url: it.thumb, filename: `${downloadFolder(className || "TinkerCAD")}/${downloadFileBase(it.student, it.name)}.png`}])
+            }, "Download the thumbnail as PNG"),
+            ovBtn("Open in 3D ↗", () => {
+                let it = items[sel]
+                if (it) openTab(`https://www.tinkercad.com/things/${it.id}/edit`)
+            }, "Open the design in a new editor tab"),
+            ovSep(),
+            ovIconBtn(TCA_ICONS.chevronRight, "Next", () => move(1)),
+            ovIconBtn(TCA_ICONS.x, "Close (Esc)", () => closeOverlay())
+        )
 
         // ── Auto-play (cycles the enlarged overlay) ─────────────────
         let autoLoop = (id) => {
@@ -225,11 +268,12 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
         }
         let toggleAuto = () => {
             autoOn = !autoOn
-            autoBtn.style.backgroundColor = autoOn ? "#4076c7" : "#fff"
-            autoBtn.style.color = autoOn ? "#fff" : "#4076c7"
+            autoSwitch.classList.toggle("is-on", autoOn)
+            autoSwitch.setAttribute("aria-pressed", String(autoOn))
             autoId++
             if (autoOn) autoLoop(autoId)
         }
+        autoSwitch.onclick = () => toggleAuto()
 
         // ── Keyboard: ←/→ navigate, Space toggles Auto, Esc closes ──
         let onKey = (e) => {
@@ -249,35 +293,16 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
         }
         document.addEventListener("keydown", onKey)
 
-        // ── Header buttons ──────────────────────────────────────────
-        header.appendChild(bigButton("Back", () => {
+        backBtn.onclick = () => {
             active = false
             autoId++
             document.removeEventListener("keydown", onKey)
             window.currentPage = Context.ACTIVITY
             disableView("teacher")
-        }))
-        header.appendChild(heading)
-        let autoBtn = bigButton("Auto", () => toggleAuto())
-        header.appendChild(autoBtn)
-        header.appendChild(bigButton("Reload", () => load()))
-        // Thumbnail size selector (S = current minimum, M, L)
-        let sizeBtns = []
-        let setSize = (idx) => {
-            sizeIdx = idx
-            sizeBtns.forEach((b, k) => {
-                b.style.backgroundColor = k === idx ? "#4076c7" : "#fff"
-                b.style.color = k === idx ? "#fff" : "#4076c7"
-            })
-            renderGrid()
         }
-        ;["S", "M", "L"].forEach((labelTxt, idx) => {
-            let b = bigButton(labelTxt, () => setSize(idx))
-            sizeBtns.push(b)
-            header.appendChild(b)
-        })
-        header.appendChild(count)
-        setSize(0)
+        reloadBtn.onclick = () => load()
+
+        renderMessage("Loading projects…")
 
         // ── Data load (full) + light periodic refresh ──────────────
         let rebuild = (done = () => {
@@ -286,14 +311,19 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
                 clazz = clazz || {}
                 className = clazz.name || ""
                 activityName = (((clazz.activities || {})[activityID]) || {}).name || ""
-                heading.textContent = [className, activityName].filter(Boolean).join(" · ") || activityID
+                heading.textContent = activityName || activityID
+                subheading.textContent = className
                 if (!codeAdded && clazz.code) {
                     codeAdded = true
-                    let codeBtn = bigButton(String(clazz.code), () => copyTextToClipboard(String(clazz.code).replaceAll("-", "")))
-                    header.insertBefore(codeBtn, autoBtn)
+                    let codeBtn = el("button", "tca-btn", String(clazz.code))
+                    codeBtn.type = "button"
+                    codeBtn.title = "Copy the class join code"
+                    codeBtn.onclick = () => copyTextToClipboard(String(clazz.code).replaceAll("-", ""))
+                    topbar.insertBefore(codeBtn, autoSwitch)
                 }
                 let prevId = (sel >= 0 && sel < items.length) ? items[sel].id : null
                 items = buildItems(clazz)
+                count.textContent = `${items.length} project${items.length === 1 ? "" : "s"}`
                 if (prevId) {
                     let ni = items.findIndex((x) => x.id === prevId)
                     sel = ni >= 0 ? ni : (items.length ? Math.min(sel, items.length - 1) : -1)

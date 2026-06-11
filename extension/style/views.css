@@ -902,3 +902,63 @@
     letter-spacing: 0.03em;
     text-transform: uppercase;
 }
+
+/* ── Teacher view: enlarge overlay (lightbox) ──────────────────────── */
+.tca-view .tca-ov {
+    position: fixed;
+    inset: 0;
+    z-index: 2147483646;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 17, 21, 0.88);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+}
+
+.tca-view .tca-ov.is-open {
+    display: flex;
+}
+
+.tca-view .tca-ov-title {
+    color: #fff;
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 14px;
+    max-width: 90vw;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tca-view .tca-ov img {
+    max-width: 90vw;
+    max-height: 72vh;
+    object-fit: contain;
+    border-radius: 12px;
+    background: var(--tca-surface);
+    box-shadow: var(--tca-shadow-lg);
+}
+
+.tca-view .tca-ov iframe {
+    width: 90vw;
+    height: 72vh;
+    border: none;
+    border-radius: 12px;
+    background: var(--tca-surface);
+}
+
+.tca-view .tca-ov-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 2px;
+    margin-top: 16px;
+    max-width: calc(100% - 32px);
+    padding: 6px 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.10);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+}
