@@ -129,6 +129,28 @@ let main = () => {
             })
 
             item.querySelector(".thumbnail").insertAdjacentElement("beforebegin", container)
+
+            // Inject status chips
+            let clazzMatch = /\/classrooms\/(\w+)/.exec(window.location.href)
+            let clazzId = clazzMatch ? clazzMatch[1] : null
+            tcaLoadProjectStatus(id, (projInfo) => {
+                if (!projInfo) return
+                if (!projInfo.clazzId && clazzId) projInfo.clazzId = clazzId
+
+                let statusWrapper = document.createElement("div")
+                statusWrapper.className = "tca-view"
+                statusWrapper.style.padding = "6px 8px"
+                statusWrapper.style.display = "flex"
+                statusWrapper.style.justifyContent = "center"
+                statusWrapper.style.borderTop = "1px solid #e2e8f0"
+                statusWrapper.style.backgroundColor = "#fafbfc"
+
+                let chipsCtl = tcaLiveStatusChips(projInfo, {
+                    compact: false
+                })
+                statusWrapper.appendChild(chipsCtl.el)
+                item.appendChild(statusWrapper)
+            })
         }, 3000, context)
     }
     easyTools(Context.GENERAL)
@@ -228,6 +250,64 @@ let main = () => {
         console.log("Collected standard basic student data")
     })
 }
+
+/**
+ * Load the status info of a project. Searches local cache first.
+ * If not found, makes an API call to Tinkercad to fetch metadata.
+ */
+let tcaLoadProjectStatus = (projectId, callback) => {
+    getKeys((keys) => {
+        if (!keys || !keys.length) {
+            // No cache, call API
+            tcApi.design(projectId).then((d) => {
+                callback({
+                    id: projectId,
+                    tags: d.asm_tags || "",
+                    printDescription: d.asm_description || "",
+                    name: d.description || d.name || d.title || ""
+                })
+            }).catch(() => callback(null))
+            return
+        }
+
+        let checked = 0
+        let found = null
+        for (let key of keys) {
+            get(key, (clazz) => {
+                if (found) return
+                for (let act of Object.values((clazz && clazz.activities) || {})) {
+                    if (act.projects && act.projects[projectId]) {
+                        found = {
+                            id: projectId,
+                            tags: act.projects[projectId].tags || "",
+                            printDescription: act.projects[projectId].printDescription || "",
+                            clazzId: key,
+                            name: act.projects[projectId].name || ""
+                        }
+                        break
+                    }
+                }
+                checked++
+                if (checked === keys.length || found) {
+                    if (found) {
+                        callback(found)
+                    } else {
+                        // Not found in cache, fetch from API
+                        tcApi.design(projectId).then((d) => {
+                            callback({
+                                id: projectId,
+                                tags: d.asm_tags || "",
+                                printDescription: d.asm_description || "",
+                                name: d.description || d.name || d.title || ""
+                            })
+                        }).catch(() => callback(null))
+                    }
+                }
+            })
+        }
+    })
+}
+
 main()
 
 if (typeof window !== 'undefined') {
@@ -235,4 +315,5 @@ if (typeof window !== 'undefined') {
     window.getCurrentActivityAndClassID = getCurrentActivityAndClassID;
     window.getCurrentClazz = getCurrentClazz;
     window.getCurrentActivity = getCurrentActivity;
+    window.tcaLoadProjectStatus = tcaLoadProjectStatus;
 }

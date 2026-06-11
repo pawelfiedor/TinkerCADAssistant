@@ -31,6 +31,20 @@ let galleryViewEnable = (projects = null) => {
         let subtitle = el("div", "tca-slide-sub")
         labels.append(title, subtitle)
         let counter = el("span", "tca-pill", "–")
+        // Workflow status of the current slide — click a chip to toggle it.
+        let statusCtl = tcaStatusChips({
+            onToggle: (st, ctl) => {
+                let p = list[i]
+                if (!p) return
+                ctl.setBusy(st.tag, true)
+                let done = () => {
+                    ctl.setBusy(st.tag, false)
+                    let cur = list[i]
+                    if (cur) ctl.set(cur.tags)
+                }
+                tcaToggleStatusTag(p, st.tag, done, done)
+            }
+        })
 
         let iconBtn = (svg, tip, onClick) => {
             let b = el("button", "tca-btn tca-btn--icon")
@@ -70,7 +84,7 @@ let galleryViewEnable = (projects = null) => {
         })
         modeBtns[0].classList.add("is-active")
 
-        topbar.append(backBtn, el("span", "tca-vsep"), labels, counter, transport, el("span", "tca-vsep"), seg)
+        topbar.append(backBtn, el("span", "tca-vsep"), labels, statusCtl.el, counter, transport, el("span", "tca-vsep"), seg)
 
         // ── Progress line (counts down to the next slide) ───────────
         let progress = el("div", "tca-progress")
@@ -140,6 +154,7 @@ let galleryViewEnable = (projects = null) => {
                 counter.textContent = "–"
                 title.textContent = ""
                 subtitle.textContent = ""
+                statusCtl.el.style.display = "none"
                 return
             }
             let p = list[i]
@@ -147,6 +162,8 @@ let galleryViewEnable = (projects = null) => {
             title.style.direction = contains_heb(p.name || "") ? "rtl" : "ltr"
             subtitle.textContent = [p.student, p.className].filter(Boolean).join(" · ")
             counter.textContent = `${i + 1} / ${list.length}`
+            statusCtl.el.style.display = ""
+            statusCtl.set(p.tags)
             if (mode === "3d") {
                 img.style.display = "none"
                 hideEmpty()
@@ -248,6 +265,8 @@ let toGalleryItem = (project, clazz) => ({
     name: project.name,
     thumb: project.thumb || null,
     mtime: project.mtime || null,
+    tags: project.tags || "",
+    printDescription: project.printDescription || "",
     student: (((clazz && clazz.students) || {})[project.author] || {}).name || project.author || null,
     className: (clazz && clazz.name) || null,
     clazzId: (clazz && clazz.id) || null

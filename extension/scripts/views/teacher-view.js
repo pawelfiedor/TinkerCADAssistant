@@ -58,6 +58,7 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
         let renderMessage = (titleText, hint) => {
             grid.innerHTML = ""
             cardEls = []
+            cardChips = []
             let box = el("div", "tca-empty")
             box.appendChild(tcaIcon(TCA_ICONS.cube))
             box.appendChild(el("h3", null, titleText))
@@ -71,13 +72,29 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
         let ovImg = document.createElement("img")
         let ovFrame = document.createElement("iframe")
         ovFrame.style.display = "none"
+        // Workflow status of the enlarged project — chips toggle + PATCH.
+        let ovStatus = tcaStatusChips({
+            onToggle: (st, ctl) => {
+                let it = items[sel]
+                if (!it) return
+                ctl.setBusy(st.tag, true)
+                let done = () => {
+                    ctl.setBusy(st.tag, false)
+                    let cur = items[sel]
+                    if (cur) ctl.set(cur.tags)
+                    refreshCardStatuses()
+                }
+                tcaToggleStatusTag(it, st.tag, done, done)
+            }
+        })
         let ovBar = el("div", "tca-ov-bar")
-        overlay.append(ovTitle, ovImg, ovFrame, ovBar)
+        overlay.append(ovTitle, ovImg, ovFrame, ovStatus.el, ovBar)
         container.appendChild(overlay)
 
         // ── State ───────────────────────────────────────────────────
         let items = []        // {id, name, student, thumb, author}
         let cardEls = []
+        let cardChips = []    // status chip controls, parallel to cardEls
         let sel = -1
         let ovOpen = false
         let ovMode = "image"  // "image" | "3d"
@@ -94,6 +111,9 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
                 name: p.name,
                 author: p.author,
                 thumb: p.thumb || null,
+                tags: p.tags || "",
+                printDescription: p.printDescription || "",
+                clazzId: clazzID,
                 student: (((clazz && clazz.students) || {})[p.author] || {}).name || p.author
             }))
         }
@@ -104,6 +124,12 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
             })
         }
 
+        let refreshCardStatuses = () => {
+            cardChips.forEach((ctl, idx) => {
+                if (items[idx]) ctl.set(items[idx].tags)
+            })
+        }
+
         let renderGrid = () => {
             if (!items.length) {
                 renderMessage("No projects yet", "Student projects appear here as they sync.")
@@ -111,6 +137,7 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
             }
             grid.innerHTML = ""
             cardEls = []
+            cardChips = []
             let row = el("div", "tca-row")
             items.forEach((it, idx) => {
                 let card = el("div", "tca-card")
@@ -131,10 +158,13 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
                 } else {
                     thumbWrap.appendChild(tcaIcon(TCA_ICONS.cube))
                 }
+                let chipsCtl = tcaLiveStatusChips(it, {compact: true})
+                cardChips.push(chipsCtl)
                 let body = el("div", "tca-card-body")
                 body.append(
                     el("div", "tca-card-student", it.student),
-                    el("div", "tca-card-project", it.name || "(untitled)")
+                    el("div", "tca-card-project", it.name || "(untitled)"),
+                    chipsCtl.el
                 )
                 card.append(thumbWrap, body)
                 card.onclick = () => openOverlay(idx)
@@ -150,6 +180,7 @@ let teacherViewEnable = () => enableView("teacher", (container) => {
             let it = items[sel]
             ovTitle.textContent = `${it.student} — ${it.name || ""}`
             ovTitle.style.direction = contains_heb(it.name || "") ? "rtl" : "ltr"
+            ovStatus.set(it.tags)
             if (ovMode === "3d") {
                 ovImg.style.display = "none"
                 ovFrame.style.display = "block"

@@ -106,6 +106,12 @@ let downloadFileBase = (username, projectName) => sanitizeName(`${username || ''
 /** CSG STL/OBJ download URL for a design. */
 let designDownloadUrl = (designId, format) => `https://csg-prd.tinkercad.com/things/${designId}/polysoup.${format}?rev=-1`
 
+/** Public page of a design (TinkerCAD redirects to the slugged URL). */
+let designPageUrl = (designId) => `https://www.tinkercad.com/things/${designId}`
+
+/** Teacher dashboard page of a classroom. */
+let classroomPageUrl = (classId) => `https://www.tinkercad.com/classrooms/${classId}`
+
 /** File extension for a download format. OBJ is served as a .zip (obj + mtl). */
 let downloadExt = (format) => format === "obj" ? "zip" : format
 
@@ -183,6 +189,8 @@ if (typeof window !== 'undefined') {
     window.downloadFolder = downloadFolder;
     window.downloadFileBase = downloadFileBase;
     window.designDownloadUrl = designDownloadUrl;
+    window.designPageUrl = designPageUrl;
+    window.classroomPageUrl = classroomPageUrl;
     window.downloadExt = downloadExt;
     window.designThumbUrl = designThumbUrl;
     window.refreshThumbnail = refreshThumbnail;

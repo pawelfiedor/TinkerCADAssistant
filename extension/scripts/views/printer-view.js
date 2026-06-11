@@ -10,6 +10,7 @@ let printerViewEnable = () => {
         let allItems = []          // {id, name, student, className, thumb}
         let selected = new Set()   // selected design ids
         let cardById = new Map()   // id -> card element
+        let cardChips = new Map()  // id -> status chip control
         let SIZES = [180, 260, 360]
         let sizeIdx = 0
         let groupByClass = true
@@ -94,11 +95,22 @@ let printerViewEnable = () => {
             dateSelect.appendChild(o)
         })
         dateSelect.value = "thisWeek"
+        let statusSelect = el("select", "tca-select")
+        ;[["any", "Status: any"]]
+            .concat(TCA_STATUS_TAGS.map((st) => [st.tag, `Status: ${st.label}`]))
+            .concat([["none", "Status: none"]])
+            .forEach(([v, t]) => {
+                let o = document.createElement("option")
+                o.value = v
+                o.textContent = t
+                statusSelect.appendChild(o)
+            })
+        statusSelect.value = "any"
         let selectShownBtn = el("button", "tca-btn", "Select shown")
         selectShownBtn.type = "button"
         selectShownBtn.title = "Select every project that matches the current filters"
         selectShownBtn.onclick = () => setSelection(visibleItems(), true)
-        toolbar.append(filterInput, nameFilterInput, dateSelect, el("span", "tca-spacer"), selectShownBtn)
+        toolbar.append(filterInput, nameFilterInput, dateSelect, statusSelect, el("span", "tca-spacer"), selectShownBtn)
 
         // ── Scrollable card grid ────────────────────────────────────
         let grid = el("div", "tca-grid tca-scroll")
@@ -119,11 +131,82 @@ let printerViewEnable = () => {
         fabClear.title = "Clear selection"
         fabClear.appendChild(svgIcon(TCA_ICONS.x))
         fabClear.onclick = () => clearAll()
+
+        // "Status ▾" — bulk-toggle workflow tags on the selection.
+        let statusWrap = el("span", "tca-fab-status")
+        let statusMenu = el("div", "tca-fab-menu")
+        let statusMenuOpen = false
+        let onDocDown = (e) => {
+            if (!statusWrap.contains(e.target)) closeStatusMenu()
+        }
+        let closeStatusMenu = () => {
+            statusMenuOpen = false
+            statusMenu.classList.remove("is-open")
+            document.removeEventListener("mousedown", onDocDown, true)
+        }
+        let openStatusMenu = () => {
+            statusMenuOpen = true
+            rebuildStatusMenu()
+            statusMenu.classList.add("is-open")
+            document.addEventListener("mousedown", onDocDown, true)
+        }
+        let rebuildStatusMenu = () => {
+            statusMenu.innerHTML = ""
+            let chosen = allItems.filter((it) => selected.has(it.id))
+            TCA_STATUS_TAGS.forEach((st) => {
+                let have = chosen.filter((it) => tcaParseTags(it.tags).has(st.tag)).length
+                let allHave = chosen.length > 0 && have === chosen.length
+                let mi = el("button", "tca-fab-mi")
+                mi.type = "button"
+                let dot = el("span", "tca-fab-mi-dot")
+                dot.style.background = st.color
+                mi.append(dot, el("span", null, st.label), el("span", "tca-fab-mi-count", `${have}/${chosen.length}`))
+                mi.title = allHave ? `Remove "${st.label}" from all selected` : `Mark all selected as "${st.label}"`
+                mi.onclick = () => {
+                    closeStatusMenu()
+                    bulkStatus(st, chosen, allHave)
+                }
+                statusMenu.appendChild(mi)
+            })
+        }
+        let bulkStatus = (st, chosen, removeAll) => {
+            let targets = chosen.filter((it) => tcaParseTags(it.tags).has(st.tag) === removeAll)
+            if (!targets.length) return
+            showNotice(`${removeAll ? "Removing" : "Adding"} "${st.label}" — ${targets.length} project(s)…`)
+            let failed = 0
+            let k = 0
+            let next = () => {
+                if (k >= targets.length) {
+                    showNotice(failed ? `Status update finished with ${failed} error(s)` : `Updated ${targets.length} project(s)`, failed ? "error" : "ok")
+                    targets.forEach((it) => {
+                        let ctl = cardChips.get(it.id)
+                        if (ctl) ctl.set(it.tags)
+                    })
+                    return
+                }
+                let it = targets[k++]
+                let set = tcaParseTags(it.tags)
+                if (removeAll) set.delete(st.tag)
+                else set.add(st.tag)
+                tcaPatchProjectMeta(it, {tags: tcaSerializeTags(set)}, () => next(), () => {
+                    failed++
+                    next()
+                })
+            }
+            next()
+        }
+        statusWrap.append(
+            fabBtn("Status ▾", () => statusMenuOpen ? closeStatusMenu() : openStatusMenu(), "Set workflow status for the selected projects"),
+            statusMenu
+        )
+
         fab.append(
             fabCount,
             fabSep(),
             fabBtn("Download STL", () => bulk("stl")),
             fabBtn("Download OBJ", () => bulk("obj")),
+            fabSep(),
+            statusWrap,
             fabSep(),
             fabBtn("Print report", () => printReport(), "Verification cards grouped by class"),
             fabBtn("Print per student", () => printReportPerStudent(), "One section per student"),
@@ -131,7 +214,119 @@ let printerViewEnable = () => {
             fabClear
         )
 
-        container.append(topbar, toolbar, grid, fab)
+        // ── Description & tags editor (modal) ───────────────────────
+        let editor = el("div", "tca-modal")
+        let editorCard = el("div", "tca-modal-card")
+        editor.appendChild(editorCard)
+        editor.onclick = (e) => {
+            if (e.target === editor) closeEditor()
+        }
+        let editorItemId = null
+        let closeEditor = () => {
+            editorItemId = null
+            editor.classList.remove("is-open")
+        }
+        let openEditor = (it) => {
+            editorItemId = it.id
+            editorCard.innerHTML = ""
+            let localTags = tcaParseTags(it.tags)
+            let dirty = false
+
+            let head = el("div", "tca-modal-head")
+            let titleLink = el("a", "tca-modal-title", it.name || "(untitled)")
+            titleLink.href = designPageUrl(it.id)
+            titleLink.target = "_blank"
+            titleLink.rel = "noopener"
+            titleLink.title = "Open the project page in a new tab"
+            let xBtn = el("button", "tca-btn tca-btn--ghost tca-modal-x")
+            xBtn.type = "button"
+            xBtn.title = "Close"
+            xBtn.appendChild(svgIcon(TCA_ICONS.x))
+            xBtn.onclick = () => closeEditor()
+            head.append(titleLink, el("span", "tca-spacer"), xBtn)
+            let sub = el("div", "tca-modal-sub", [it.student, it.className].filter(Boolean).join(" · "))
+
+            let statusField = el("div", "tca-field")
+            statusField.appendChild(el("span", "tca-field-label", "Status"))
+            let chipsCtl = tcaStatusChips({
+                tags: it.tags,
+                onToggle: (st, ctl) => {
+                    dirty = true
+                    if (localTags.has(st.tag)) localTags.delete(st.tag)
+                    else localTags.add(st.tag)
+                    ctl.set(tcaSerializeTags(localTags))
+                }
+            })
+            statusField.appendChild(chipsCtl.el)
+
+            let descField = el("div", "tca-field")
+            descField.appendChild(el("span", "tca-field-label", "Description"))
+            let descInput = el("textarea", "tca-input tca-textarea")
+            descInput.placeholder = "Print notes, dimensions, filament…"
+            descInput.value = it.printDescription || ""
+            descInput.addEventListener("input", () => dirty = true)
+            descField.appendChild(descInput)
+
+            let tagsField = el("div", "tca-field")
+            tagsField.appendChild(el("span", "tca-field-label", "Other tags (comma separated)"))
+            let tagsInput = el("input", "tca-input")
+            tagsInput.type = "text"
+            tagsInput.placeholder = "e.g. competition, large-print"
+            tagsInput.value = tcaOtherTags(it.tags).join(", ")
+            tagsInput.addEventListener("input", () => dirty = true)
+            tagsField.appendChild(tagsInput)
+
+            let foot = el("div", "tca-modal-foot")
+            let cancelBtn = el("button", "tca-btn", "Cancel")
+            cancelBtn.type = "button"
+            cancelBtn.onclick = () => closeEditor()
+            let saveBtn = el("button", "tca-btn tca-btn--primary", "Save")
+            saveBtn.type = "button"
+            saveBtn.onclick = () => {
+                let statuses = new Set(TCA_STATUS_TAGS.map((s) => s.tag))
+                let others = tagsInput.value.split(",")
+                    .map((t) => t.trim())
+                    .filter(Boolean)
+                    .filter((t) => !statuses.has(t.toLowerCase()))
+                let ordered = TCA_STATUS_TAGS.filter((s) => localTags.has(s.tag)).map((s) => s.tag)
+                let tagsStr = tcaSerializeTags([...ordered, ...others])
+                saveBtn.disabled = true
+                saveBtn.textContent = "Saving…"
+                tcaPatchProjectMeta(it, {tags: tagsStr, printDescription: descInput.value}, () => {
+                    closeEditor()
+                    let ctl = cardChips.get(it.id)
+                    if (ctl) ctl.set(it.tags)
+                }, () => {
+                    saveBtn.disabled = false
+                    saveBtn.textContent = "Save"
+                })
+            }
+            foot.append(cancelBtn, saveBtn)
+
+            editorCard.append(head, sub, statusField, descField, tagsField, foot)
+            editor.classList.add("is-open")
+
+            // Background refresh: tags may have changed in TinkerCAD's own
+            // dialog since the last sync. Don't stomp on user edits.
+            tcApi.design(it.id).then((d) => {
+                if (!d) return
+                let freshTags = d.asm_tags != null ? d.asm_tags : it.tags
+                let freshDesc = d.asm_description != null ? d.asm_description : it.printDescription
+                it.tags = freshTags
+                it.printDescription = freshDesc
+                if (it.clazzId) tcaUpdateStoredProject(it.clazzId, it.id, {tags: freshTags, printDescription: freshDesc})
+                let cardCtl = cardChips.get(it.id)
+                if (cardCtl) cardCtl.set(freshTags)
+                if (!dirty && editorItemId === it.id) {
+                    localTags = tcaParseTags(freshTags)
+                    chipsCtl.set(freshTags)
+                    descInput.value = freshDesc || ""
+                    tagsInput.value = tcaOtherTags(freshTags).join(", ")
+                }
+            }).catch(() => {})
+        }
+
+        container.append(topbar, toolbar, grid, fab, editor)
 
         let updateSelCount = () => {
             fabCount.textContent = `${selected.size} selected`
@@ -141,10 +336,19 @@ let printerViewEnable = () => {
             let ft = filterInput.value.trim().toLowerCase()
             let nft = nameFilterInput.value.trim().toLowerCase()
             let range = dateSelect.value
+            let sf = statusSelect.value
             return allItems.filter((it) => {
                 if (!inDateRange(toMillis(it.mtime), range)) return false
                 if (ft && !`${it.student} ${it.className} ${it.name}`.toLowerCase().includes(ft)) return false
                 if (nft && !`${it.name}`.toLowerCase().includes(nft)) return false
+                if (sf !== "any") {
+                    let set = tcaParseTags(it.tags)
+                    if (sf === "none") {
+                        if (TCA_STATUS_TAGS.some((st) => set.has(st.tag))) return false
+                    } else if (!set.has(sf)) {
+                        return false
+                    }
+                }
                 return true
             })
         }
@@ -203,18 +407,41 @@ let printerViewEnable = () => {
             }
 
             let body = el("div", "tca-card-body")
+            let projLink = el("a", "tca-card-project tca-card-link", it.name || "(untitled)")
+            projLink.href = designPageUrl(it.id)
+            projLink.target = "_blank"
+            projLink.rel = "noopener"
+            projLink.title = "Open the project page in a new tab"
+            projLink.onclick = (e) => e.stopPropagation()
+            let classLink = el("a", "tca-card-class tca-card-link", it.className || "")
+            if (it.clazzId) {
+                classLink.href = classroomPageUrl(it.clazzId)
+                classLink.target = "_blank"
+                classLink.rel = "noopener"
+                classLink.title = "Open the class page in a new tab"
+                classLink.onclick = (e) => e.stopPropagation()
+            }
             let foot = el("div", "tca-card-foot")
-            foot.append(
-                el("span", "tca-card-class", it.className || ""),
-                el("span", "tca-card-date", it.mtime ? formatDate(it.mtime) : "")
-            )
+            foot.append(classLink, el("span", "tca-card-date", it.mtime ? formatDate(it.mtime) : ""))
+            let chipsCtl = tcaLiveStatusChips(it, {compact: true})
+            cardChips.set(it.id, chipsCtl)
             body.append(
                 el("div", "tca-card-student", it.student || "(unknown)"),
-                el("div", "tca-card-project", it.name || "(untitled)"),
-                foot
+                projLink,
+                foot,
+                chipsCtl.el
             )
 
-            card.append(check, thumbWrap, body)
+            let editBtn = el("button", "tca-edit")
+            editBtn.type = "button"
+            editBtn.title = "Edit description & tags"
+            editBtn.innerHTML = TCA_ICONS.pencil
+            editBtn.onclick = (e) => {
+                e.stopPropagation()
+                openEditor(it)
+            }
+
+            card.append(check, editBtn, thumbWrap, body)
             card.onclick = () => toggle(it.id, card)
             return card
         }
@@ -243,6 +470,7 @@ let printerViewEnable = () => {
                     filterInput.value = ""
                     nameFilterInput.value = ""
                     dateSelect.value = "all"
+                    statusSelect.value = "any"
                     renderGrid()
                 }))
             }
@@ -252,6 +480,7 @@ let printerViewEnable = () => {
         let renderGrid = () => {
             grid.innerHTML = ""
             cardById.clear()
+            cardChips.clear()
             if (loading) {
                 renderSkeleton()
                 return
@@ -268,17 +497,27 @@ let printerViewEnable = () => {
                 return
             }
             if (groupByClass) {
-                let groups = new Map() // key -> {label, items}
+                let groups = new Map() // key -> {label, clazzId, items}
                 items.forEach((it) => {
                     let key = it.clazzId || it.className || "?"
-                    if (!groups.has(key)) groups.set(key, {label: it.className || "(unknown class)", items: []})
+                    if (!groups.has(key)) groups.set(key, {label: it.className || "(unknown class)", clazzId: it.clazzId, items: []})
                     groups.get(key).items.push(it)
                 })
                 groups.forEach((g) => {
                     let section = el("section", "tca-section")
                     let head = el("div", "tca-section-head")
+                    let titleEl
+                    if (g.clazzId) {
+                        titleEl = el("a", "tca-section-title tca-card-link", g.label)
+                        titleEl.href = classroomPageUrl(g.clazzId)
+                        titleEl.target = "_blank"
+                        titleEl.rel = "noopener"
+                        titleEl.title = "Open the class page in a new tab"
+                    } else {
+                        titleEl = el("span", "tca-section-title", g.label)
+                    }
                     head.append(
-                        el("span", "tca-section-title", g.label),
+                        titleEl,
                         el("span", "tca-pill tca-section-count", String(g.items.length)),
                         el("span", "tca-section-line"),
                         linkBtn("Select all", () => setSelection(g.items, true)),
@@ -786,6 +1025,7 @@ let printerViewEnable = () => {
         filterInput.addEventListener("input", () => renderGrid())
         nameFilterInput.addEventListener("input", () => renderGrid())
         dateSelect.addEventListener("change", () => renderGrid())
+        statusSelect.addEventListener("change", () => renderGrid())
         updateSelCount()
 
         renderGrid() // shows the loading skeleton until data arrives

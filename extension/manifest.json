@@ -27,6 +27,7 @@
         "scripts/lib/storage.js",
         "scripts/lib/toasts.js",
         "scripts/lib/ui-buttons.js",
+        "scripts/lib/status-tags.js",
         "scripts/lib/page-watcher.js",
         "scripts/data/scraper.js",
         "scripts/views/view-manager.js",

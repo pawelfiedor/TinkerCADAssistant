@@ -118,7 +118,67 @@ const tcApi = {
 
     /** Full detail for a single design (description = name, user_id = owner). */
     async design(designId) {
-        return this._get(`/things/${designId}`)
+        return this._get(`/designs/detail/${designId}`)
+    },
+
+    /** CSRF token TinkerCAD stores in a (non-HttpOnly) cookie. */
+    _csrfToken() {
+        let m = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/)
+        return m ? decodeURIComponent(m[1]) : null
+    },
+
+    /**
+     * Update design metadata (asm_tags / asm_description / description…).
+     * The official client PATCHes the full editable field set, so we
+     * read-modify-write. Precedence: defaults < `fallbacks` (caller's cached
+     * copy) < fresh GET values < `patch` (the actual change) — so a failed
+     * GET can't wipe fields, and a successful GET can't be overridden by a
+     * stale cache for fields we aren't changing.
+     */
+    async patchDesign(designId, patch, fallbacks = {}) {
+        let csrf = this._csrfToken()
+        if (!csrf) throw new Error('Missing TinkerCAD CSRF token — reload the page and sign in again')
+        let current = null
+        try {
+            current = await this.design(designId)
+        } catch (e) {
+            console.warn("[tca] Fetching design details failed, patching with cached fallbacks:", e)
+        }
+        let body = {
+            license_id: "0",
+            description: "",
+            permission: 0,
+            asm_tags: "",
+            asm_description: "",
+            ...fallbacks
+        }
+        if (current) {
+            if (current.license_id != null) body.license_id = String(current.license_id)
+            if (current.description != null) body.description = current.description
+            if (current.permission != null) body.permission = current.permission
+            if (current.asm_tags != null) body.asm_tags = current.asm_tags
+            if (current.asm_description != null) body.asm_description = current.asm_description
+        } else if (!body.description) {
+            // `description` IS the design's display name. Without a fresh copy
+            // or a cached name, sending "" would blank it — refuse instead.
+            throw new Error(`No design name available for ${designId} — refusing to PATCH blind`)
+        }
+        Object.assign(body, patch)
+        let res = await fetch(`${TC_API_BASE}/dashboard/designs/${designId}?content_type=tinkercad`, {
+            method: 'PATCH',
+            credentials: 'include',
+            headers: {
+                'Accept': 'application/json, text/plain, */*',
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrf
+            },
+            body: JSON.stringify(body)
+        })
+        if (res.status === 401 || res.status === 403) {
+            throw Object.assign(new Error('TinkerCAD session expired — please log in again'), {status: res.status})
+        }
+        if (!res.ok) throw new Error(`TinkerCAD API ${res.status} @ PATCH designs/${designId}`)
+        return res.json().catch(() => null)
     },
 }
 
