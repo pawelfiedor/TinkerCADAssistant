@@ -650,3 +650,81 @@
 .tca-view .tca-scroll::-webkit-scrollbar-thumb:hover {
     background: #b9c2cc;
 }
+
+/* ── Gallery: slideshow chrome ─────────────────────────────────────── */
+.tca-gallery .tca-topbar {
+    /* The progress track right below acts as the divider. */
+    border-bottom: none;
+}
+
+.tca-view .tca-labels {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    gap: 1px;
+}
+
+.tca-view .tca-slide-title {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tca-view .tca-slide-sub {
+    font-size: 12px;
+    color: var(--tca-text-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tca-view .tca-transport {
+    display: inline-flex;
+    gap: 6px;
+}
+
+.tca-view .tca-progress {
+    flex: 0 0 auto;
+    height: 3px;
+    background: var(--tca-border);
+}
+
+.tca-view .tca-progress-fill {
+    height: 100%;
+    width: 0;
+    background: var(--tca-accent);
+}
+
+.tca-view .tca-stage {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    padding: 24px;
+}
+
+.tca-view .tca-stage.is-3d {
+    padding: 0;
+}
+
+.tca-view .tca-stage img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 12px;
+    background: var(--tca-surface);
+    border: 1px solid var(--tca-border);
+    box-shadow: var(--tca-shadow-md);
+}
+
+.tca-view .tca-stage iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+}

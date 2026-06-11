@@ -2,71 +2,116 @@ let galleryViewEnable = (projects = null) => {
     let prevPage = window.currentPage
     return enableView("gallery", (container) => {
         window.currentPage = Context.GALLERY
+        // Adopt the scoped design system; clear enableView's inline #fff so
+        // the stylesheet canvas color applies.
+        container.classList.add("tca-view", "tca-gallery")
+        container.style.background = ""
+
         let active = true
         let paused = false
         let mode = "image" // "image" | "3d"
         let list = []
         let i = 0
+        let el = tcaEl
 
-        // ── Top progress bar (counts down to the next slide) ────────
-        let progress = document.createElement("div")
-        Object.assign(progress.style, {height: "3px", width: "100%", background: "#e2e8f0", flex: "0 0 auto"})
-        let progressFill = document.createElement("div")
-        Object.assign(progressFill.style, {height: "100%", width: "0%", background: "#4076c7"})
+        // ── Top bar: back, slide labels, counter + transport ────────
+        let topbar = el("div", "tca-topbar")
+        let backBtn = el("button", "tca-btn tca-btn--ghost")
+        backBtn.type = "button"
+        backBtn.appendChild(tcaIcon(TCA_ICONS.back))
+        backBtn.appendChild(document.createTextNode("Back"))
+        backBtn.onclick = () => {
+            active = false
+            if (timer) clearTimeout(timer)
+            window.currentPage = prevPage
+            disableView("gallery")
+        }
+        let labels = el("div", "tca-labels")
+        let title = el("div", "tca-slide-title")
+        let subtitle = el("div", "tca-slide-sub")
+        labels.append(title, subtitle)
+        let counter = el("span", "tca-pill", "–")
+
+        let iconBtn = (svg, tip, onClick) => {
+            let b = el("button", "tca-btn tca-btn--icon")
+            b.type = "button"
+            b.title = tip
+            b.setAttribute("aria-label", tip)
+            b.appendChild(tcaIcon(svg))
+            b.onclick = onClick
+            return b
+        }
+        let prevBtn = iconBtn(TCA_ICONS.chevronLeft, "Previous", () => goTo(i - 1, true))
+        let pauseBtn = iconBtn(TCA_ICONS.pause, "Pause", () => {
+            paused = !paused
+            updatePauseUI()
+            if (paused) freezeProgress()
+            else scheduleNext()
+        })
+        let nextBtn = iconBtn(TCA_ICONS.chevronRight, "Next", () => goTo(i + 1, true))
+        let transport = el("div", "tca-transport")
+        transport.append(prevBtn, pauseBtn, nextBtn)
+
+        let seg = el("div", "tca-seg")
+        let setMode = (m) => {
+            if (mode === m) return
+            mode = m
+            modeBtns.forEach((b) => b.classList.toggle("is-active", b.dataset.mode === m))
+            stage.classList.toggle("is-3d", m === "3d")
+            render()
+        }
+        let modeBtns = [["image", "Image"], ["3d", "3D"]].map(([m, label]) => {
+            let b = el("button", "tca-seg-btn", label)
+            b.type = "button"
+            b.dataset.mode = m
+            b.onclick = () => setMode(m)
+            seg.appendChild(b)
+            return b
+        })
+        modeBtns[0].classList.add("is-active")
+
+        topbar.append(backBtn, el("span", "tca-vsep"), labels, counter, transport, el("span", "tca-vsep"), seg)
+
+        // ── Progress line (counts down to the next slide) ───────────
+        let progress = el("div", "tca-progress")
+        let progressFill = el("div", "tca-progress-fill")
         progress.appendChild(progressFill)
 
-        // ── Control bar ─────────────────────────────────────────────
-        let bar = document.createElement("div")
-        Object.assign(bar.style, {
-            display: "flex", alignItems: "center", gap: "10px",
-            flex: "0 0 auto", padding: "8px 12px", boxSizing: "border-box",
-            fontFamily: "Open Sans, Helvetica, Arial, sans-serif"
-        })
-        let labels = document.createElement("div")
-        Object.assign(labels.style, {flex: "1", minWidth: "0", overflow: "hidden"})
-        let title = document.createElement("div")
-        Object.assign(title.style, {fontSize: "20px", fontWeight: "700", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"})
-        let subtitle = document.createElement("div")
-        Object.assign(subtitle.style, {fontSize: "13px", color: "#666", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"})
-        labels.appendChild(title)
-        labels.appendChild(subtitle)
-        let counter = document.createElement("span")
-        Object.assign(counter.style, {fontSize: "13px", color: "#666", minWidth: "60px", textAlign: "center"})
-
         // ── Display stage (flex:1 — no page scrollbars) ─────────────
-        let stage = document.createElement("div")
-        Object.assign(stage.style, {
-            flex: "1", minHeight: "0", display: "flex",
-            alignItems: "center", justifyContent: "center",
-            background: "#f4f4f4", overflow: "hidden"
-        })
+        let stage = el("div", "tca-stage")
         let img = document.createElement("img")
-        Object.assign(img.style, {maxWidth: "100%", maxHeight: "100%", objectFit: "contain"})
+        img.style.display = "none"
+        let frame = document.createElement("iframe")
+        frame.style.display = "none"
+        let empty = el("div", "tca-empty")
+        let emptyTitle = el("h3")
+        let emptyHint = el("p")
+        empty.append(tcaIcon(TCA_ICONS.cube), emptyTitle, emptyHint)
+        empty.style.display = "none"
+        let showEmpty = (text, hint = "") => {
+            emptyTitle.textContent = text
+            emptyHint.textContent = hint
+            emptyHint.style.display = hint ? "" : "none"
+            empty.style.display = "flex"
+        }
+        let hideEmpty = () => {
+            empty.style.display = "none"
+        }
         img.onerror = () => {
             let p = list[i]
             if (p) {
                 refreshThumbnail(p.id, p.clazzId, img, () => {
                     img.style.display = "none"
-                    empty.style.display = "block"
-                    empty.innerText = "No thumbnail — use the 3D button"
+                    showEmpty("No thumbnail", "Switch to 3D to load the live model.")
                 })
             } else {
                 img.style.display = "none"
-                empty.style.display = "block"
-                empty.innerText = "No thumbnail — use the 3D button"
+                showEmpty("No thumbnail", "Switch to 3D to load the live model.")
             }
         }
-        let frame = document.createElement("iframe")
-        Object.assign(frame.style, {width: "100%", height: "100%", border: "none", display: "none"})
-        let empty = document.createElement("div")
-        Object.assign(empty.style, {color: "#999", fontSize: "16px", display: "none"})
-        stage.appendChild(img)
-        stage.appendChild(frame)
-        stage.appendChild(empty)
+        stage.append(img, frame, empty)
 
-        container.appendChild(progress)
-        container.appendChild(bar)
-        container.appendChild(stage)
+        container.append(topbar, progress, stage)
 
         let set3dFrame = (p) => {
             frame.src = `https://www.tinkercad.com/things/${p.id}/edit`
@@ -91,41 +136,43 @@ let galleryViewEnable = (projects = null) => {
             if (!list.length) {
                 img.style.display = "none"
                 frame.style.display = "none"
-                empty.style.display = "block"
-                empty.innerText = "No projects to show"
-                counter.innerText = ""
-                title.innerText = ""
-                subtitle.innerText = ""
+                showEmpty("No projects to show")
+                counter.textContent = "–"
+                title.textContent = ""
+                subtitle.textContent = ""
                 return
             }
             let p = list[i]
-            title.innerText = p.name || "(untitled)"
+            title.textContent = p.name || "(untitled)"
             title.style.direction = contains_heb(p.name || "") ? "rtl" : "ltr"
-            subtitle.innerText = [p.student, p.className].filter(Boolean).join(" · ")
-            counter.innerText = `${i + 1} / ${list.length}`
+            subtitle.textContent = [p.student, p.className].filter(Boolean).join(" · ")
+            counter.textContent = `${i + 1} / ${list.length}`
             if (mode === "3d") {
                 img.style.display = "none"
-                empty.style.display = "none"
+                hideEmpty()
                 frame.style.display = "block"
                 set3dFrame(p)
             } else {
                 frame.style.display = "none"
                 frame.src = "about:blank" // unload the heavy editor
                 if (p.thumb) {
-                    empty.style.display = "none"
+                    hideEmpty()
                     img.style.display = "block"
                     img.src = p.thumb
                     img.alt = p.name || ""
                 } else {
                     img.style.display = "none"
-                    empty.style.display = "block"
-                    empty.innerText = "No thumbnail — use the 3D button"
+                    showEmpty("No thumbnail", "Switch to 3D to load the live model.")
                 }
             }
         }
 
-        let updatePauseLabel = () => {
-            pauseBtn.textContent = paused ? "Play" : "Pause"
+        let updatePauseUI = () => {
+            pauseBtn.innerHTML = ""
+            pauseBtn.appendChild(tcaIcon(paused ? TCA_ICONS.play : TCA_ICONS.pause))
+            pauseBtn.title = paused ? "Play" : "Pause"
+            pauseBtn.setAttribute("aria-label", pauseBtn.title)
+            pauseBtn.classList.toggle("tca-btn--primary", paused)
         }
 
         // ── Auto-advance with a visual countdown ────────────────────
@@ -170,36 +217,10 @@ let galleryViewEnable = (projects = null) => {
             i = (idx % list.length + list.length) % list.length
             if (manualPause) paused = true
             render()
-            updatePauseLabel()
+            updatePauseUI()
             if (paused) freezeProgress()
             else scheduleNext()
         }
-
-        // ── Controls ────────────────────────────────────────────────
-        let pauseBtn = bigButton("Pause", () => {
-            paused = !paused
-            updatePauseLabel()
-            if (paused) freezeProgress()
-            else scheduleNext()
-        })
-        let modeBtn = bigButton("3D", () => {
-            mode = mode === "3d" ? "image" : "3d"
-            modeBtn.textContent = mode === "3d" ? "Image" : "3D"
-            render()
-        })
-
-        bar.appendChild(bigButton("Back", () => {
-            active = false
-            if (timer) clearTimeout(timer)
-            window.currentPage = prevPage
-            disableView("gallery")
-        }))
-        bar.appendChild(labels)
-        bar.appendChild(counter)
-        bar.appendChild(bigButton("◀", () => goTo(i - 1, true)))
-        bar.appendChild(pauseBtn)
-        bar.appendChild(bigButton("▶", () => goTo(i + 1, true)))
-        bar.appendChild(modeBtn)
 
         let begin = (items) => {
             list = items || []
@@ -207,14 +228,14 @@ let galleryViewEnable = (projects = null) => {
             render()
             scheduleNext()
         }
+        updatePauseUI()
         if (projects) {
             begin(projects)
         } else {
             // Opened from the classes dashboard (no list): load the whole school
             // first, then collect every project. Show a loading state meanwhile.
-            title.innerText = "Loading…"
-            empty.style.display = "block"
-            empty.innerText = "Loading projects…"
+            title.textContent = "Loading…"
+            showEmpty("Loading projects…")
             updateStorage(() => getGalleryProjects(begin))
         }
     }, () => {
