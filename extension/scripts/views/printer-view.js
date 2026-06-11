@@ -2,33 +2,84 @@ let printerViewEnable = () => {
     let prevPage = window.currentPage
     return enableView("printer", (container) => {
         window.currentPage = Context.PRINTER
+        // Adopt the scoped design system; clear enableView's inline #fff so
+        // the stylesheet canvas color applies.
+        container.classList.add("tca-view", "tca-printer")
+        container.style.background = ""
+
         let allItems = []          // {id, name, student, className, thumb}
         let selected = new Set()   // selected design ids
         let cardById = new Map()   // id -> card element
         let SIZES = [180, 260, 360]
         let sizeIdx = 0
         let groupByClass = true
+        let loading = true
 
-        // ── Header ──────────────────────────────────────────────────
-        let header = document.createElement("div")
-        Object.assign(header.style, {
-            display: "flex", alignItems: "center", gap: "8px", flex: "0 0 auto",
-            padding: "8px 12px", boxSizing: "border-box", flexWrap: "wrap",
-            fontFamily: "Open Sans, Helvetica, Arial, sans-serif"
+        let el = tcaEl
+        let svgIcon = tcaIcon
+        let linkBtn = (text, onClick) => {
+            let b = el("button", "tca-link-btn", text)
+            b.type = "button"
+            b.onclick = onClick
+            return b
+        }
+
+        // ── Top bar: navigation, title, view options ────────────────
+        let topbar = el("div", "tca-topbar")
+        let backBtn = el("button", "tca-btn tca-btn--ghost")
+        backBtn.type = "button"
+        backBtn.appendChild(svgIcon(TCA_ICONS.back))
+        backBtn.appendChild(document.createTextNode("Back"))
+        backBtn.onclick = () => {
+            window.currentPage = prevPage
+            disableView("printer")
+        }
+        let countPill = el("span", "tca-pill", "Loading…")
+        let groupSwitch = el("button", "tca-switch is-on")
+        groupSwitch.type = "button"
+        groupSwitch.setAttribute("aria-pressed", "true")
+        groupSwitch.appendChild(el("span", null, "Group by class"))
+        groupSwitch.appendChild(el("span", "tca-switch-track"))
+        groupSwitch.onclick = () => {
+            groupByClass = !groupByClass
+            groupSwitch.classList.toggle("is-on", groupByClass)
+            groupSwitch.setAttribute("aria-pressed", String(groupByClass))
+            renderGrid()
+        }
+        let seg = el("div", "tca-seg")
+        let setSize = (idx) => {
+            sizeIdx = idx
+            sizeBtns.forEach((b, k) => b.classList.toggle("is-active", k === idx))
+            renderGrid()
+        }
+        let sizeBtns = [["S", "Small cards"], ["M", "Medium cards"], ["L", "Large cards"]].map(([t, tip], idx) => {
+            let b = el("button", "tca-seg-btn", t)
+            b.type = "button"
+            b.title = tip
+            b.onclick = () => setSize(idx)
+            seg.appendChild(b)
+            return b
         })
-        let titleEl = document.createElement("strong")
-        titleEl.textContent = "Print Manager"
-        titleEl.style.fontSize = "16px"
-        let filterInput = document.createElement("input")
+        sizeBtns[0].classList.add("is-active")
+        topbar.append(
+            backBtn,
+            el("span", "tca-vsep"),
+            el("span", "tca-title", "Print Manager"),
+            countPill,
+            el("span", "tca-spacer"),
+            groupSwitch,
+            seg
+        )
+
+        // ── Toolbar: filters + bulk select ──────────────────────────
+        let toolbar = el("div", "tca-toolbar")
+        let filterInput = el("input", "tca-input tca-input--search")
         filterInput.type = "search"
         filterInput.placeholder = "Filter by student / class…"
-        Object.assign(filterInput.style, {padding: "6px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", minWidth: "180px"})
-        let nameFilterInput = document.createElement("input")
+        let nameFilterInput = el("input", "tca-input tca-input--search")
         nameFilterInput.type = "search"
         nameFilterInput.placeholder = "Filter by project name…"
-        Object.assign(nameFilterInput.style, {padding: "6px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", minWidth: "180px"})
-        let dateSelect = document.createElement("select")
-        Object.assign(dateSelect.style, {padding: "6px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px"})
+        let dateSelect = el("select", "tca-select")
         ;[
             ["all", "Any date"],
             ["thisWeek", "Modified: this week"],
@@ -43,23 +94,48 @@ let printerViewEnable = () => {
             dateSelect.appendChild(o)
         })
         dateSelect.value = "thisWeek"
-        let selCount = document.createElement("span")
-        Object.assign(selCount.style, {fontSize: "13px", color: "#666", marginLeft: "auto"})
+        let selectShownBtn = el("button", "tca-btn", "Select shown")
+        selectShownBtn.type = "button"
+        selectShownBtn.title = "Select every project that matches the current filters"
+        selectShownBtn.onclick = () => setSelection(visibleItems(), true)
+        toolbar.append(filterInput, nameFilterInput, dateSelect, el("span", "tca-spacer"), selectShownBtn)
 
-        // ── Status line + grid ──────────────────────────────────────
-        let status = document.createElement("div")
-        Object.assign(status.style, {padding: "8px 12px", color: "#666", fontSize: "13px", flex: "0 0 auto"})
-        let grid = document.createElement("div")
-        Object.assign(grid.style, {
-            display: "flex", flexWrap: "wrap", gap: "12px", padding: "12px",
-            flex: "1", minHeight: "0", overflowY: "auto", alignContent: "flex-start", boxSizing: "border-box"
-        })
-        container.appendChild(header)
-        container.appendChild(status)
-        container.appendChild(grid)
+        // ── Scrollable card grid ────────────────────────────────────
+        let grid = el("div", "tca-grid tca-scroll")
+
+        // ── Floating selection bar (appears when something is selected)
+        let fab = el("div", "tca-fab")
+        let fabCount = el("span", "tca-fab-count", "0 selected")
+        let fabSep = () => el("span", "tca-fab-sep")
+        let fabBtn = (label, onClick, tip) => {
+            let b = el("button", "tca-fab-btn", label)
+            b.type = "button"
+            if (tip) b.title = tip
+            b.onclick = onClick
+            return b
+        }
+        let fabClear = el("button", "tca-fab-btn tca-fab-clear")
+        fabClear.type = "button"
+        fabClear.title = "Clear selection"
+        fabClear.appendChild(svgIcon(TCA_ICONS.x))
+        fabClear.onclick = () => clearAll()
+        fab.append(
+            fabCount,
+            fabSep(),
+            fabBtn("Download STL", () => bulk("stl")),
+            fabBtn("Download OBJ", () => bulk("obj")),
+            fabSep(),
+            fabBtn("Print report", () => printReport(), "Verification cards grouped by class"),
+            fabBtn("Print per student", () => printReportPerStudent(), "One section per student"),
+            fabSep(),
+            fabClear
+        )
+
+        container.append(topbar, toolbar, grid, fab)
 
         let updateSelCount = () => {
-            selCount.textContent = `${selected.size} selected`
+            fabCount.textContent = `${selected.size} selected`
+            fab.classList.toggle("is-visible", selected.size > 0)
         }
         let visibleItems = () => {
             let ft = filterInput.value.trim().toLowerCase()
@@ -73,7 +149,7 @@ let printerViewEnable = () => {
             })
         }
         let applySelStyle = (card, isSel) => {
-            card.style.border = isSel ? "3px solid #16a34a" : "2px solid transparent"
+            card.classList.toggle("is-selected", isSel)
         }
         let toggle = (id, card) => {
             if (selected.has(id)) selected.delete(id)
@@ -90,77 +166,105 @@ let printerViewEnable = () => {
             })
             updateSelCount()
         }
+
+        let formatDate = (mtime) => {
+            if (!mtime) return "N/A"
+            try {
+                let ms = toMillis(mtime)
+                return new Date(ms).toLocaleDateString("pl-PL")
+            } catch (e) {
+                return "N/A"
+            }
+        }
+
         let makeCard = (it) => {
-            let cardW = SIZES[sizeIdx]
-            let card = document.createElement("div")
-            Object.assign(card.style, {
-                width: `${cardW}px`, cursor: "pointer", borderRadius: "8px",
-                overflow: "hidden", background: "#fff", boxShadow: "0 1px 4px rgba(0,0,0,0.12)"
-            })
+            let card = el("div", "tca-card")
+            card.style.width = `${SIZES[sizeIdx]}px`
             applySelStyle(card, selected.has(it.id))
-            let thumbWrap = document.createElement("div")
-            Object.assign(thumbWrap.style, {
-                width: "100%", height: `${Math.round(cardW * 0.75)}px`, background: "#f1f5f9",
-                display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", fontSize: "32px"
-            })
+            card.title = `${it.student || "?"} — ${it.name || ""}`
+
+            let check = el("span", "tca-check")
+            check.innerHTML = TCA_ICONS.check
+
+            let thumbWrap = el("div", "tca-thumb")
             if (it.thumb) {
                 let im = document.createElement("img")
-                Object.assign(im.style, {width: "100%", height: "100%", objectFit: "cover"})
                 im.src = it.thumb
                 im.alt = ""
                 im.onerror = () => {
                     refreshThumbnail(it.id, it.clazzId, im, () => {
-                        im.style.display = "none"
-                        thumbWrap.textContent = "🧊"
+                        im.remove()
+                        thumbWrap.appendChild(svgIcon(TCA_ICONS.cube))
                     })
                 }
                 thumbWrap.appendChild(im)
             } else {
-                thumbWrap.textContent = "🧊"
+                thumbWrap.appendChild(svgIcon(TCA_ICONS.cube))
             }
-            let lbl = document.createElement("div")
-            Object.assign(lbl.style, {padding: "6px 8px 0", fontSize: "13px", fontWeight: "600", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"})
-            lbl.textContent = it.student || "(unknown)"
-            let projEl = document.createElement("div")
-            Object.assign(projEl.style, {padding: "2px 8px 0", fontSize: "12px", color: "#1e293b", fontWeight: "500", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"})
-            projEl.textContent = it.name || "(untitled)"
-            let sub = document.createElement("div")
-            Object.assign(sub.style, {padding: "0 8px 6px", fontSize: "11px", color: "#64748b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"})
-            sub.textContent = it.className || ""
-            lbl.title = `${it.student || "?"} — ${it.name || ""}`
-            card.appendChild(thumbWrap)
-            card.appendChild(lbl)
-            card.appendChild(projEl)
-            card.appendChild(sub)
+
+            let body = el("div", "tca-card-body")
+            let foot = el("div", "tca-card-foot")
+            foot.append(
+                el("span", "tca-card-class", it.className || ""),
+                el("span", "tca-card-date", it.mtime ? formatDate(it.mtime) : "")
+            )
+            body.append(
+                el("div", "tca-card-student", it.student || "(unknown)"),
+                el("div", "tca-card-project", it.name || "(untitled)"),
+                foot
+            )
+
+            card.append(check, thumbWrap, body)
             card.onclick = () => toggle(it.id, card)
             return card
         }
-        let wrapRow = () => {
-            let r = document.createElement("div")
-            Object.assign(r.style, {display: "flex", flexWrap: "wrap", gap: "12px", alignContent: "flex-start"})
-            return r
+
+        let renderSkeleton = () => {
+            countPill.textContent = "Loading…"
+            let row = el("div", "tca-row")
+            for (let k = 0; k < 10; k++) {
+                let c = el("div", "tca-skel-card")
+                c.style.width = `${SIZES[sizeIdx]}px`
+                let body = el("div", "tca-skel-body")
+                body.append(el("div", "tca-skel-line"), el("div", "tca-skel-line tca-skel-line--short"))
+                c.append(el("div", "tca-skel-thumb"), body)
+                row.appendChild(c)
+            }
+            grid.appendChild(row)
         }
-        let groupHeaderBtn = (text, onClick) => {
-            let b = document.createElement("button")
-            b.textContent = text
-            b.onclick = onClick
-            Object.assign(b.style, {padding: "2px 8px", fontSize: "12px", borderRadius: "5px", border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", color: "#1477d1"})
-            return b
+
+        let renderEmpty = (title, hint, withReset) => {
+            let box = el("div", "tca-empty")
+            box.appendChild(svgIcon(TCA_ICONS.cube))
+            box.appendChild(el("h3", null, title))
+            box.appendChild(el("p", null, hint))
+            if (withReset) {
+                box.appendChild(linkBtn("Reset filters", () => {
+                    filterInput.value = ""
+                    nameFilterInput.value = ""
+                    dateSelect.value = "all"
+                    renderGrid()
+                }))
+            }
+            grid.appendChild(box)
         }
+
         let renderGrid = () => {
             grid.innerHTML = ""
             cardById.clear()
+            if (loading) {
+                renderSkeleton()
+                return
+            }
             if (!allItems.length) {
-                status.textContent = "No projects found."
+                countPill.textContent = "0 projects"
+                renderEmpty("No projects found", "Projects appear here once your classes have synced.", false)
                 return
             }
             let items = visibleItems()
-            status.textContent = `${items.length} of ${allItems.length} shown`
+            countPill.textContent = `${items.length} of ${allItems.length} shown`
             if (!items.length) {
-                let none = document.createElement("div")
-                none.style.color = "#94a3b8"
-                none.textContent = "No projects match the current filters."
-                grid.appendChild(none)
+                renderEmpty("No matching projects", "Try different search terms or another date range.", true)
                 return
             }
             if (groupByClass) {
@@ -171,27 +275,26 @@ let printerViewEnable = () => {
                     groups.get(key).items.push(it)
                 })
                 groups.forEach((g) => {
-                    let section = document.createElement("div")
-                    let head = document.createElement("div")
-                    Object.assign(head.style, {display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px", borderBottom: "1px solid #e2e8f0", paddingBottom: "4px"})
-                    let h = document.createElement("strong")
-                    h.textContent = `${g.label} (${g.items.length})`
-                    h.style.fontSize = "14px"
-                    head.appendChild(h)
-                    head.appendChild(groupHeaderBtn("Select group", () => setSelection(g.items, true)))
-                    head.appendChild(groupHeaderBtn("Deselect", () => setSelection(g.items, false)))
-                    let row = wrapRow()
+                    let section = el("section", "tca-section")
+                    let head = el("div", "tca-section-head")
+                    head.append(
+                        el("span", "tca-section-title", g.label),
+                        el("span", "tca-pill tca-section-count", String(g.items.length)),
+                        el("span", "tca-section-line"),
+                        linkBtn("Select all", () => setSelection(g.items, true)),
+                        linkBtn("Deselect", () => setSelection(g.items, false))
+                    )
+                    let row = el("div", "tca-row")
                     g.items.forEach((it) => {
                         let c = makeCard(it)
                         row.appendChild(c)
                         cardById.set(it.id, c)
                     })
-                    section.appendChild(head)
-                    section.appendChild(row)
+                    section.append(head, row)
                     grid.appendChild(section)
                 })
             } else {
-                let row = wrapRow()
+                let row = el("div", "tca-row")
                 items.forEach((it) => {
                     let c = makeCard(it)
                     row.appendChild(c)
@@ -216,16 +319,6 @@ let printerViewEnable = () => {
                 filename: `${downloadFolder(it.className || "TinkerCAD")}/${downloadFileBase(it.student, it.name)}.${downloadExt(format)}`
             }))
             downloadBatch(jobs)
-        }
-
-        let formatDate = (mtime) => {
-            if (!mtime) return "N/A"
-            try {
-                let ms = toMillis(mtime)
-                return new Date(ms).toLocaleDateString("pl-PL")
-            } catch (e) {
-                return "N/A"
-            }
         }
 
         let printReport = () => {
@@ -461,7 +554,7 @@ let printerViewEnable = () => {
             <div>Generated by TinkerCAD Assistant</div>
         </div>
     </header>
-    
+
     ${sectionsHtml}
 
 </body>
@@ -668,7 +761,7 @@ let printerViewEnable = () => {
             <div>Generated by TinkerCAD Assistant</div>
         </div>
     </header>
-    
+
     ${sectionsHtml}
 
 </body>
@@ -689,55 +782,16 @@ let printerViewEnable = () => {
             }
         }
 
-        // ── Header controls ─────────────────────────────────────────
-        header.appendChild(bigButton("Back", () => {
-            window.currentPage = prevPage
-            disableView("printer")
-        }))
-        header.appendChild(titleEl)
-        header.appendChild(filterInput)
-        header.appendChild(nameFilterInput)
-        header.appendChild(dateSelect)
-        let groupBtn = bigButton("Group: on", () => {
-            groupByClass = !groupByClass
-            groupBtn.textContent = groupByClass ? "Group: on" : "Group: off"
-            renderGrid()
-        })
-        header.appendChild(groupBtn)
-        header.appendChild(bigButton("Select shown", () => setSelection(visibleItems(), true)))
-        header.appendChild(bigButton("Clear", () => {
-            clearAll()
-        }))
-        header.appendChild(bigButton("Download STL", () => bulk("stl")))
-        header.appendChild(bigButton("Download OBJ", () => bulk("obj")))
-        header.appendChild(bigButton("Print Report", () => printReport()))
-        header.appendChild(bigButton("Print per Student", () => printReportPerStudent()))
-        let sizeBtns = []
-        let setSize = (idx) => {
-            sizeIdx = idx
-            sizeBtns.forEach((b, k) => {
-                b.style.backgroundColor = k === idx ? "#4076c7" : "#fff"
-                b.style.color = k === idx ? "#fff" : "#4076c7"
-            })
-            renderGrid()
-        }
-        ;["S", "M", "L"].forEach((t, idx) => {
-            let b = bigButton(t, () => setSize(idx))
-            sizeBtns.push(b)
-            header.appendChild(b)
-        })
-        sizeBtns[0].style.backgroundColor = "#4076c7"
-        sizeBtns[0].style.color = "#fff"
-        header.appendChild(selCount)
+        // ── Wiring + initial load ───────────────────────────────────
         filterInput.addEventListener("input", () => renderGrid())
         nameFilterInput.addEventListener("input", () => renderGrid())
         dateSelect.addEventListener("change", () => renderGrid())
         updateSelCount()
 
-        // ── Load all classes, then render ───────────────────────────
-        status.textContent = "Loading projects…"
+        renderGrid() // shows the loading skeleton until data arrives
         updateStorage(() => getGalleryProjects((items) => {
             allItems = items || []
+            loading = false
             renderGrid()
         }))
     }, () => {

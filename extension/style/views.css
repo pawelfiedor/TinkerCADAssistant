@@ -1,0 +1,652 @@
+/* ════════════════════════════════════════════════════════════════════
+   TinkerCAD Assistant — shared design system for full-screen views
+   (Print Manager, Gallery). Every rule is scoped under .tca-view so
+   nothing leaks into the TinkerCAD page itself.
+   ════════════════════════════════════════════════════════════════════ */
+
+.tca-view {
+    --tca-bg: #f6f7f9;
+    --tca-surface: #ffffff;
+    --tca-border: #e4e7ec;
+    --tca-border-strong: #cfd6de;
+    --tca-text: #181c23;
+    --tca-text-2: #5b6472;
+    --tca-text-3: #9aa3b0;
+    --tca-accent: #1477d1;
+    --tca-accent-strong: #0f63b0;
+    --tca-accent-soft: #e7f1fb;
+    --tca-shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
+    --tca-shadow-md: 0 8px 24px rgba(16, 24, 40, 0.10);
+    --tca-shadow-lg: 0 16px 40px rgba(16, 24, 40, 0.20);
+
+    font-family: "Open Sans", Helvetica, Arial, sans-serif;
+    color: var(--tca-text);
+    background: var(--tca-bg);
+}
+
+.tca-view *,
+.tca-view *::before,
+.tca-view *::after {
+    box-sizing: border-box;
+}
+
+/* ── Bars ──────────────────────────────────────────────────────────── */
+.tca-view .tca-topbar,
+.tca-view .tca-toolbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    flex: 0 0 auto;
+    background: var(--tca-surface);
+    border-bottom: 1px solid var(--tca-border);
+}
+
+.tca-view .tca-topbar {
+    gap: 12px;
+    padding: 12px 20px;
+}
+
+.tca-view .tca-toolbar {
+    gap: 10px;
+    padding: 10px 20px;
+}
+
+.tca-view .tca-title {
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+.tca-view .tca-pill {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--tca-text-2);
+    background: var(--tca-bg);
+    border: 1px solid var(--tca-border);
+    border-radius: 999px;
+    padding: 3px 10px;
+    white-space: nowrap;
+}
+
+.tca-view .tca-spacer {
+    flex: 1;
+}
+
+.tca-view .tca-vsep {
+    width: 1px;
+    height: 22px;
+    background: var(--tca-border);
+}
+
+.tca-view .tca-icon {
+    display: inline-flex;
+    line-height: 0;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────── */
+.tca-view .tca-btn {
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 14px;
+    border: 1px solid var(--tca-border);
+    border-radius: 10px;
+    background: var(--tca-surface);
+    color: var(--tca-text);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.2;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.06s ease;
+}
+
+.tca-view .tca-btn:hover {
+    background: #f3f5f8;
+    border-color: var(--tca-border-strong);
+}
+
+.tca-view .tca-btn:active {
+    transform: scale(0.97);
+}
+
+.tca-view .tca-btn--ghost {
+    border-color: transparent;
+    background: transparent;
+    color: var(--tca-text-2);
+}
+
+.tca-view .tca-btn--ghost:hover {
+    background: #eef1f5;
+    border-color: transparent;
+    color: var(--tca-text);
+}
+
+.tca-view .tca-btn--primary {
+    background: var(--tca-accent);
+    border-color: var(--tca-accent);
+    color: #fff;
+}
+
+.tca-view .tca-btn--primary:hover {
+    background: var(--tca-accent-strong);
+    border-color: var(--tca-accent-strong);
+}
+
+.tca-view .tca-btn--icon {
+    width: 36px;
+    padding: 8px 0;
+    justify-content: center;
+}
+
+.tca-view .tca-link-btn {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--tca-accent);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.tca-view .tca-link-btn:hover {
+    background: var(--tca-accent-soft);
+    color: var(--tca-accent-strong);
+}
+
+.tca-view button:focus-visible {
+    outline: 2px solid var(--tca-accent);
+    outline-offset: 2px;
+}
+
+/* ── Inputs ────────────────────────────────────────────────────────── */
+.tca-view .tca-input,
+.tca-view .tca-select {
+    appearance: none;
+    font-family: inherit;
+    font-size: 13px;
+    color: var(--tca-text);
+    background-color: var(--tca-surface);
+    border: 1px solid var(--tca-border);
+    border-radius: 10px;
+    padding: 8px 12px;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.tca-view .tca-input:hover,
+.tca-view .tca-select:hover {
+    border-color: var(--tca-border-strong);
+}
+
+.tca-view .tca-input:focus,
+.tca-view .tca-select:focus {
+    outline: none;
+    border-color: var(--tca-accent);
+    box-shadow: 0 0 0 3px var(--tca-accent-soft);
+}
+
+.tca-view .tca-input::placeholder {
+    color: var(--tca-text-3);
+}
+
+.tca-view .tca-input--search {
+    flex: 0 1 230px;
+    min-width: 150px;
+    padding-left: 34px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%239aa3b0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.3-4.3'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: 11px center;
+    background-size: 15px;
+}
+
+.tca-view .tca-select {
+    padding-right: 32px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%235b6472' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 15px;
+    cursor: pointer;
+}
+
+/* ── Segmented control ─────────────────────────────────────────────── */
+.tca-view .tca-seg {
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    background: var(--tca-bg);
+    border: 1px solid var(--tca-border);
+    border-radius: 10px;
+}
+
+.tca-view .tca-seg-btn {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--tca-text-2);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 12px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.tca-view .tca-seg-btn:hover {
+    color: var(--tca-text);
+}
+
+.tca-view .tca-seg-btn.is-active {
+    background: var(--tca-surface);
+    color: var(--tca-text);
+    box-shadow: var(--tca-shadow-sm);
+}
+
+/* ── Switch ────────────────────────────────────────────────────────── */
+.tca-view .tca-switch {
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: none;
+    background: transparent;
+    padding: 4px 6px;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--tca-text-2);
+    cursor: pointer;
+}
+
+.tca-view .tca-switch-track {
+    position: relative;
+    flex: 0 0 auto;
+    width: 34px;
+    height: 20px;
+    border-radius: 999px;
+    background: #d3d9e0;
+    transition: background 0.18s ease;
+}
+
+.tca-view .tca-switch-track::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+    transition: left 0.18s ease;
+}
+
+.tca-view .tca-switch.is-on .tca-switch-track {
+    background: var(--tca-accent);
+}
+
+.tca-view .tca-switch.is-on .tca-switch-track::after {
+    left: 16px;
+}
+
+/* ── Content area (Print Manager grid) ─────────────────────────────── */
+.tca-view .tca-grid {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    /* Bottom padding keeps the floating action bar from covering cards. */
+    padding: 0 20px 96px;
+}
+
+.tca-view .tca-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    align-content: flex-start;
+}
+
+.tca-view .tca-grid > .tca-row {
+    padding-top: 16px;
+}
+
+.tca-view .tca-section {
+    margin-bottom: 12px;
+}
+
+.tca-view .tca-section-head {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 0 10px;
+    margin-bottom: 6px;
+    background: rgba(246, 247, 249, 0.88);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+.tca-view .tca-section-title {
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.tca-view .tca-section-count {
+    padding: 2px 8px;
+    font-size: 11px;
+}
+
+.tca-view .tca-section-line {
+    flex: 1;
+    height: 1px;
+    background: var(--tca-border);
+}
+
+/* ── Project cards ─────────────────────────────────────────────────── */
+.tca-view .tca-card {
+    position: relative;
+    background: var(--tca-surface);
+    border: 1px solid var(--tca-border);
+    border-radius: 12px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.tca-view .tca-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--tca-border-strong);
+    box-shadow: var(--tca-shadow-md);
+}
+
+.tca-view .tca-card.is-selected {
+    border-color: var(--tca-accent);
+    box-shadow: 0 0 0 1px var(--tca-accent);
+}
+
+.tca-view .tca-card.is-selected:hover {
+    box-shadow: 0 0 0 1px var(--tca-accent), var(--tca-shadow-md);
+}
+
+.tca-view .tca-check {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 2;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid var(--tca-border-strong);
+    color: transparent;
+    opacity: 0;
+    transform: scale(0.8);
+    transition: opacity 0.15s ease, transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.tca-view .tca-card:hover .tca-check {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.tca-view .tca-card.is-selected .tca-check {
+    opacity: 1;
+    transform: scale(1);
+    background: var(--tca-accent);
+    border-color: var(--tca-accent);
+    color: #fff;
+}
+
+.tca-view .tca-thumb {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    background: #edf0f4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    color: #c2cad6;
+}
+
+.tca-view .tca-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.25s ease;
+}
+
+.tca-view .tca-card:hover .tca-thumb img {
+    transform: scale(1.04);
+}
+
+.tca-view .tca-card.is-selected .tca-thumb::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: rgba(20, 119, 209, 0.10);
+}
+
+.tca-view .tca-thumb .tca-icon svg {
+    width: 36px;
+    height: 36px;
+}
+
+.tca-view .tca-card-body {
+    display: grid;
+    gap: 2px;
+    padding: 10px 12px 11px;
+}
+
+.tca-view .tca-card-student {
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tca-view .tca-card-project {
+    font-size: 12px;
+    color: var(--tca-text-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tca-view .tca-card-foot {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 2px;
+}
+
+.tca-view .tca-card-class {
+    font-size: 11px;
+    color: var(--tca-text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tca-view .tca-card-date {
+    flex: 0 0 auto;
+    font-size: 11px;
+    color: var(--tca-text-3);
+    white-space: nowrap;
+}
+
+/* ── Floating selection bar ────────────────────────────────────────── */
+.tca-view .tca-fab {
+    position: fixed;
+    left: 50%;
+    bottom: 20px;
+    z-index: 10;
+    transform: translateX(-50%) translateY(10px);
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 2px;
+    max-width: calc(100% - 32px);
+    padding: 7px 8px 7px 16px;
+    border-radius: 24px;
+    background: #1b1f27;
+    color: #fff;
+    box-shadow: var(--tca-shadow-lg);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.tca-view .tca-fab.is-visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+    pointer-events: auto;
+}
+
+.tca-view .tca-fab-count {
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+    margin-right: 6px;
+}
+
+.tca-view .tca-fab-sep {
+    width: 1px;
+    height: 18px;
+    background: rgba(255, 255, 255, 0.22);
+    margin: 0 6px;
+}
+
+.tca-view .tca-fab-btn {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: #fff;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 12px;
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s ease;
+}
+
+.tca-view .tca-fab-btn:hover {
+    background: rgba(255, 255, 255, 0.14);
+}
+
+.tca-view .tca-fab-clear {
+    padding: 0;
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* ── Empty state ───────────────────────────────────────────────────── */
+.tca-view .tca-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 72px 20px;
+    text-align: center;
+    color: var(--tca-text-3);
+}
+
+.tca-view .tca-empty .tca-icon svg {
+    width: 44px;
+    height: 44px;
+}
+
+.tca-view .tca-empty h3 {
+    margin: 10px 0 0;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--tca-text-2);
+}
+
+.tca-view .tca-empty p {
+    margin: 0;
+    font-size: 13px;
+}
+
+.tca-view .tca-empty .tca-link-btn {
+    margin-top: 6px;
+    font-size: 13px;
+}
+
+/* ── Loading skeleton ──────────────────────────────────────────────── */
+.tca-view .tca-skel-card {
+    border: 1px solid var(--tca-border);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--tca-surface);
+}
+
+.tca-view .tca-skel-thumb {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+}
+
+.tca-view .tca-skel-body {
+    display: grid;
+    gap: 8px;
+    padding: 12px 12px 14px;
+}
+
+.tca-view .tca-skel-line {
+    height: 10px;
+    border-radius: 5px;
+    width: 75%;
+}
+
+.tca-view .tca-skel-line--short {
+    width: 45%;
+}
+
+.tca-view .tca-skel-thumb,
+.tca-view .tca-skel-line {
+    background: linear-gradient(90deg, #edf0f4 25%, #f7f9fb 40%, #edf0f4 60%);
+    background-size: 400% 100%;
+    animation: tca-shimmer 1.3s ease-in-out infinite;
+}
+
+@keyframes tca-shimmer {
+    0% { background-position: 100% 0; }
+    100% { background-position: 0 0; }
+}
+
+/* ── Scrollbar ─────────────────────────────────────────────────────── */
+.tca-view .tca-scroll::-webkit-scrollbar {
+    width: 10px;
+}
+
+.tca-view .tca-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.tca-view .tca-scroll::-webkit-scrollbar-thumb {
+    background: #cfd6de;
+    border-radius: 8px;
+    border: 3px solid var(--tca-bg);
+}
+
+.tca-view .tca-scroll::-webkit-scrollbar-thumb:hover {
+    background: #b9c2cc;
+}
