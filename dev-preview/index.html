@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>TCA views preview</title>
+    <link rel="stylesheet" href="/extension/style/views.css">
+    <style>body { margin: 0; font-family: "Open Sans", Helvetica, Arial, sans-serif; }</style>
+</head>
+<body>
+<div id="main" style="padding: 20px">TinkerCAD page placeholder</div>
+<script>
+    // ── Stubs for extension globals (chrome APIs, storage layer) ──
+    window.chrome = {
+        runtime: {id: "preview", sendMessage() {}, onMessage: {addListener() {}}},
+        storage: {local: {get(k, cb) { cb({speed: 4}) }, set(o, cb) { cb && cb() }}}
+    }
+    window.Context = {PRINTER: "printer", CLASSES: "classes", GALLERY: "gallery", GENERAL: "general", TEACHER: "teacher", ACTIVITY: "activity"}
+    window.showNotice = (text, kind) => console.log("notice:", kind, text)
+    window.tcApiError = (e, what) => console.warn("tcApiError:", what, e && e.message)
+    window.currentPage = "classes"
+    // tcApi stub backed by the fake classData below (defined later, resolved at call time)
+    let findProj = (id) => {
+        for (let c of Object.values(classData))
+            for (let a of Object.values(c.activities || {}))
+                if (a.projects && a.projects[id]) return a.projects[id]
+        return null
+    }
+    window.tcApi = {
+        design: (id) => new Promise((resolve, reject) => setTimeout(() => {
+            let p = findProj(id)
+            if (p) resolve({id, asm_tags: p.tags || "", asm_description: p.printDescription || ""})
+            else reject(new Error("not found"))
+        }, 250)),
+        patchDesign: (id, patch) => new Promise((resolve) => setTimeout(() => {
+            let p = findProj(id)
+            if (p) {
+                if (patch.asm_tags != null) p.tags = patch.asm_tags
+                if (patch.asm_description != null) p.printDescription = patch.asm_description
+            }
+            console.log("PATCH design", id, JSON.stringify(patch))
+            resolve({})
+        }, 300))
+    }
+    window.downloadBatch = (jobs) => console.log("downloadBatch", jobs)
+    window.updateStorage = (cb) => setTimeout(cb, 1200) // keep the loading state visible briefly
+    window.awaitResult = () => {} // 3D iframe polish is a no-op outside tinkercad.com
+    window.modify = () => {}
+
+    // ── Fake classes in the real storage shape ──
+    let svgThumb = (h) => "data:image/svg+xml," + encodeURIComponent(
+        `<svg xmlns='http://www.w3.org/2000/svg' width='400' height='300'>` +
+        `<rect width='400' height='300' fill='hsl(${h},42%,90%)'/>` +
+        `<g transform='translate(200,150)'>` +
+        `<polygon points='0,-70 60,-35 60,35 0,70 -60,35 -60,-35' fill='hsl(${h},45%,72%)'/>` +
+        `<polygon points='0,-70 60,-35 0,0 -60,-35' fill='hsl(${h},50%,82%)'/>` +
+        `<polygon points='0,0 60,-35 60,35 0,70' fill='hsl(${h},40%,60%)'/>` +
+        `</g></svg>`)
+    let studentNames = ["Ala Kowalska", "Bartek Nowak", "Celina Wiśniewska", "Dawid Lewandowski",
+        "Ewa Zielińska", "Franek Szymański", "Gosia Woźniak", "Hubert Dąbrowski"]
+    let projectNames = ["Keychain", "Phone stand", "Castle tower", "Name tag", "Dice", "Rocket",
+        "Gear set", "Bridge model", "Vase", "Robot arm"]
+    let classData = {}
+    let now = Date.now()
+    let i = 0
+    ;[["c1", "4A — Robotics"], ["c2", "5B — 3D Design"], ["c3", "6C — STEM Club"]].forEach(([cid, cname], ci) => {
+        let students = {}
+        studentNames.forEach((n, k) => students[`u${k}`] = {id: `u${k}`, name: n})
+        let projects = {}
+        let tagSamples = ["", "to-print", "to-print,verified", "printed", "printed,handed,competition", "verified"]
+        for (let k = 0; k < 7 + ci * 2; k++) {
+            let id = `p${i}`
+            projects[id] = {
+                id,
+                name: `${projectNames[i % projectNames.length]} v${k + 1}`,
+                author: `u${i % studentNames.length}`,
+                thumb: (i % 5 === 4) ? null : svgThumb((i * 47) % 360),
+                mtime: now - (i % 3) * 86400000 - (i % 9 === 8 ? 12 * 86400000 : 0),
+                tags: tagSamples[i % tagSamples.length],
+                printDescription: i % 3 === 0 ? "PLA 0.2 mm, 20% infill" : ""
+            }
+            i++
+        }
+        classData[cid] = {id: cid, name: cname, students, activities: {a1: {name: "Bridge challenge", projects}}}
+    })
+    window.getKeys = (cb) => cb(Object.keys(classData))
+    window.get = (id, cb) => cb(classData[id])
+    window.getCurrentClazz = (cb) => setTimeout(() => cb(classData.c1), 600)
+    classData.c1.code = "ABC-DEF"
+    window.getCurrentActivityAndClassID = (cb) => cb("c1", "a1")
+    window.sasAllDataForClassActivity = (cid, aid, cb) => setTimeout(cb, 600)
+    window.sasGetProjectsOfActivity = (cid, aid, cb) => cb()
+    window.download = (project, dir, fmt) => console.log("download", project, dir, fmt)
+</script>
+<script src="/extension/scripts/lib/utils.js"></script>
+<script src="/extension/scripts/lib/ui-buttons.js"></script>
+<script src="/extension/scripts/lib/status-tags.js"></script>
+<script src="/extension/scripts/views/view-manager.js"></script>
+<script src="/extension/scripts/views/printer-view.js"></script>
+<script src="/extension/scripts/views/gallery-view.js"></script>
+<script src="/extension/scripts/views/analytics-view.js"></script>
+<script src="/extension/scripts/views/teacher-view.js"></script>
+<script>
+    // Pick the view with ?view=printer (default), gallery, analytics or teacher.
+    let view = new URLSearchParams(location.search).get("view") || "printer"
+    if (view === "gallery") galleryViewEnable() // no list: exercises the loading path
+    else if (view === "analytics") analyticsViewEnable()
+    else if (view === "teacher") teacherViewEnable()
+    else printerViewEnable()
+</script>
+</body>
+</html>
